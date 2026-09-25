@@ -2,7 +2,7 @@
 <h1 align="center">HOMEii Flow Engine</h1>
 <p align="center"><strong>The connection between your music dashboard and your smart home.</strong><br>Music Assistant state, playback and home automation — through Home Assistant.</p>
 <p align="center"><img alt="Engine 1.0.0" src="https://img.shields.io/badge/Engine-1.0.0-c89b56"><img alt="Home Assistant integration" src="https://img.shields.io/badge/Home_Assistant-custom_integration-41BDF5"><img alt="Stable" src="https://img.shields.io/badge/Status-STABLE-2ea44f"></p>
-<p align="center"><a href="https://github.com/r11a/homeii-music-flow">Music Flow card</a> · <a href="#installation">Installation</a> · <a href="#configuration-fields">Configuration</a> · <a href="#automations-you-can-build">Automations</a> · <a href="#troubleshooting">Troubleshooting</a> · <a href="docs/BETA_UPGRADE_HE.md">עברית</a></p>
+<p align="center"><a href="https://github.com/r11a/homeii-music-flow">Music Flow card</a> · <a href="#installation">Installation</a> · <a href="#configuration-fields">Configuration</a> · <a href="#automations-you-can-build">Automations</a> · <a href="#troubleshooting">Troubleshooting</a></p>
 
 > [!IMPORTANT]
 > **Required stable pair: Engine `1.0.0` + card `6.0.0`. Install the Engine first.** Updating the card from 5.9.3 before the Engine is a breaking, unsupported order.

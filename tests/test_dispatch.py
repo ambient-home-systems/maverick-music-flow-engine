@@ -49,7 +49,7 @@ class DispatchTests(unittest.IsolatedAsyncioTestCase):
         r = Runtime()
         r.hass = SimpleNamespace(services=SimpleNamespace(has_service=lambda *args: True))
         r._announcement_targets = lambda p: p["players"]
-        r._preferred_announcement_say_service = lambda _: "google_translate_say"
+        r._preferred_announcement_say_service = lambda: "google_translate_say"
         r.async_record_announcement = AsyncMock(return_value={"announcement": {}})
         r.async_record_activity = AsyncMock()
         r.async_call_service_response = AsyncMock()
@@ -72,9 +72,9 @@ class DispatchTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_tts_language_is_top_level(self):
         r = self.runtime()
-        result = await r.async_send_announcement({"message": "test", "players": ["a"], "tts_entity": "tts.test", "language": "he", "volume": 20})
+        result = await r.async_send_announcement({"message": "test", "players": ["a"], "tts_entity": "tts.test", "language": "en", "volume": 20})
         data = r.async_call_service_response.call_args.args[2]
-        self.assertEqual(namespace["tts"].generate_media_source_id.call_args.kwargs["language"], "he")
+        self.assertEqual(namespace["tts"].generate_media_source_id.call_args.kwargs["language"], "en")
         self.assertTrue(data["announce"] )
         self.assertEqual(data["extra"], {"announce_volume": 20})
         self.assertNotIn("options", data)

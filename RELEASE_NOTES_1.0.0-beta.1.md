@@ -2,7 +2,7 @@
 
 **Public beta — install deliberately and back up first.**
 
-Matching card: **[HOMEii Music Flow 6.0.0-beta.1](https://github.com/r11a/homeii-music-flow)**. Install and configure the Engine before upgrading card 5.9.3. Read the [full setup guide](README.md) and [Hebrew migration warning](docs/BETA_UPGRADE_HE.md).
+Matching card: **[HOMEii Music Flow 6.0.0-beta.1](https://github.com/r11a/homeii-music-flow)**. Install and configure the Engine before upgrading card 5.9.3. Read the [full setup guide](README.md).
 
 ## What is included
 
