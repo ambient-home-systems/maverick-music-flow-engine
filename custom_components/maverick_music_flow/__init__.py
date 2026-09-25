@@ -27,6 +27,11 @@ from .artwork_proxy import (
     async_get_strict_artwork_session,
     home_assistant_base_url,
 )
+from .command_bridge import (
+    HTTP_COMMAND_SCHEMAS,
+    music_assistant_command_allowed,
+    strip_internal_keys,
+)
 from .sendspin_bridge import HomeiiFlowSendspinView
 
 from .const import (
@@ -442,7 +447,14 @@ class HomeiiFlowItemArtworkProxyView(HomeiiFlowArtworkProxyView):
 
 
 class HomeiiFlowCommandView(HomeAssistantView):
-    """Expose selected Engine reads over authenticated HTTP for frontend fallbacks."""
+    """Expose a fixed set of Engine commands over authenticated HTTP for frontend fallbacks.
+
+    The card falls back to this view for reads (get_context, bootstrap/get, queue/get,
+    library/get, favorites/get, search/get). It also accepts two writes, favorites/set and
+    ma/command. Every command validates its body with the same schema as the matching
+    WebSocket command and applies the same authorization, so HTTP grants nothing that
+    WebSocket does not. ma/command is limited to the Music Assistant command allowlist.
+    """
 
     url = "/api/maverick_music_flow/command/{command:.+}"
     name = "api:maverick_music_flow:command"
@@ -453,15 +465,24 @@ class HomeiiFlowCommandView(HomeAssistantView):
         self.hass = hass
 
     async def post(self, request: web.Request, command: str) -> web.Response:
-        """Run a read command for clients that cannot use the websocket command path."""
-        try:
-            payload = await request.json()
-        except Exception:  # noqa: BLE001 - malformed JSON should become a clear HTTP error
-            payload = {}
-        if not isinstance(payload, dict):
-            payload = {}
-        runtime = async_get_runtime(self.hass)
+        """Run one allowed Engine command for clients that cannot use WebSocket."""
         clean_command = str(command or "").strip().strip("/")
+        schema = HTTP_COMMAND_SCHEMAS.get(clean_command)
+        if schema is None:
+            raise web.HTTPNotFound(text="unsupported HOMEii Flow Engine command")
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001 - malformed JSON should become a clear HTTP error
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            payload = schema(strip_internal_keys(body))
+        except vol.Invalid as err:
+            raise web.HTTPBadRequest(text=f"invalid request: {err}") from err
+        # "type" is the WebSocket command type the card also sends over HTTP.
+        payload.pop("type", None)
+        runtime = async_get_runtime(self.hass)
         instance_id = str(payload.get(CONF_INSTANCE_ID) or "").strip() or None
         profile_id = str(payload.get(CONF_PROFILE_ID) or "").strip() or None
         if clean_command == "get_context":
@@ -478,10 +499,10 @@ class HomeiiFlowCommandView(HomeAssistantView):
             result = await runtime.async_set_favorite(payload)
         elif clean_command == "search/get":
             result = await runtime.async_get_search(payload)
-        elif clean_command == "ma/command":
+        else:  # ma/command
+            if not music_assistant_command_allowed(str(payload["command"]).strip()):
+                raise web.HTTPForbidden(text="Music Assistant command is not allowed")
             result = await runtime.async_music_assistant_command(payload)
-        else:
-            raise web.HTTPNotFound(text="unsupported HOMEii Flow Engine command")
         return web.json_response(result)
 
 

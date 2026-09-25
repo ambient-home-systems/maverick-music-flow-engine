@@ -22,7 +22,7 @@ if not SOURCE.exists():
     SOURCE = Path(__file__).with_name("runtime.py")
 tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
 helpers = {"_dict_first", "_clean_string", "_safe_list", "_maybe_number", "_first_non_empty", "_safe_id_part", "_utc_iso", "_playback_snapshot_changed"}
-methods = {"_music_assistant_command_allowed", "cached_stats", "stats", "_ha_entity_for_ma_player", "_normalize_ma_player", "_player_readiness", "async_players_snapshot", "async_play_media", "_try_music_queue_command_bridge", "normalize_queue_response", "_queue_payload_root", "_queue_payload_items", "_queue_payload_expected_count", "_resolve_ma_player_id", "is_music_assistant_player"}
+methods = {"cached_stats", "stats", "_ha_entity_for_ma_player", "_normalize_ma_player", "_player_readiness", "async_players_snapshot", "async_play_media", "_try_music_queue_command_bridge", "normalize_queue_response", "_queue_payload_root", "_queue_payload_items", "_queue_payload_expected_count", "_resolve_ma_player_id", "is_music_assistant_player"}
 methods.update({"_media_type_command_roots", "_music_library_command_attempts", "_try_music_library_command_bridge", "_library_cache_entry", "_library_response", "async_get_library"})
 nodes = [ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0)]
 nodes.extend(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in helpers)
@@ -39,12 +39,6 @@ Runtime = namespace["HomeiiFlowRuntime"]
 
 
 class ReliabilityTests(unittest.IsolatedAsyncioTestCase):
-    def test_playlist_append_is_allowed_without_opening_playlist_administration(self):
-        self.assertTrue(Runtime._music_assistant_command_allowed("music/playlists/add_playlist_tracks"))
-        self.assertFalse(Runtime._music_assistant_command_allowed("music/playlists/create_playlist"))
-        self.assertFalse(Runtime._music_assistant_command_allowed("music/playlists/remove_playlist_tracks"))
-        self.assertFalse(Runtime._music_assistant_command_allowed("config/providers/save"))
-
     def setUp(self):
         registry.entities = {}
         self.runtime = Runtime()

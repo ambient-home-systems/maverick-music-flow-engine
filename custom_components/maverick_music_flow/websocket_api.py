@@ -10,6 +10,16 @@ from homeassistant.components import websocket_api
 from homeassistant.components.websocket_api import ActiveConnection
 from homeassistant.core import HomeAssistant, callback
 
+from .command_bridge import (
+    BASE_SCHEMA,
+    FAVORITES_GET_FIELDS,
+    FAVORITES_SET_FIELDS,
+    LIBRARY_GET_FIELDS,
+    MA_COMMAND_FIELDS,
+    QUEUE_GET_FIELDS,
+    SEARCH_GET_FIELDS,
+    strip_internal_keys,
+)
 from .const import CONF_INSTANCE_ID, CONF_PROFILE_ID, DOMAIN
 from .runtime import HomeiiFlowRuntime
 from .radio_directory import search_stations
@@ -23,21 +33,11 @@ def _runtime(hass: HomeAssistant) -> HomeiiFlowRuntime:
 
 
 def _command_payload(msg: dict[str, Any]) -> dict[str, Any]:
-    """Return command data without the Home Assistant websocket message id."""
-    payload = dict(msg)
+    """Return command data without the websocket message id, type or internal flags."""
+    payload = strip_internal_keys(msg)
     payload.pop("id", None)
     payload.pop("type", None)
     return payload
-
-
-BASE_SCHEMA = {
-    vol.Optional("card_id"): str,
-    vol.Optional("card_version"): str,
-    vol.Optional(CONF_INSTANCE_ID): str,
-    vol.Optional(CONF_PROFILE_ID): str,
-    vol.Optional("selected_player"): str,
-    vol.Optional("source"): str,
-}
 
 
 def async_register_websocket_commands(hass: HomeAssistant) -> None:
@@ -280,8 +280,7 @@ async def websocket_player_command(
     {
         vol.Required("type"): "maverick_music_flow/ma/command",
         **BASE_SCHEMA,
-        vol.Required("command"): str,
-        vol.Optional("args", default=dict): dict,
+        **MA_COMMAND_FIELDS,
     }
 )
 @websocket_api.async_response
@@ -301,11 +300,7 @@ async def websocket_music_assistant_command(
     {
         vol.Required("type"): "maverick_music_flow/queue/get",
         **BASE_SCHEMA,
-        vol.Optional("entity_id"): str,
-        vol.Optional("selected_player"): str,
-        vol.Optional("queue_id"): str,
-        vol.Optional("limit_before"): vol.Any(str, int),
-        vol.Optional("limit_after"): vol.Any(str, int),
+        **QUEUE_GET_FIELDS,
     }
 )
 @websocket_api.async_response
@@ -377,18 +372,7 @@ async def websocket_transfer_queue(
     {
         vol.Required("type"): "maverick_music_flow/library/get",
         **BASE_SCHEMA,
-        vol.Optional("media_type"): str,
-        vol.Optional("type"): str,
-        vol.Optional("query"): str,
-        vol.Optional("search"): str,
-        vol.Optional("search_query"): str,
-        vol.Optional("name"): str,
-        vol.Optional("order_by"): str,
-        vol.Optional("limit"): int,
-        vol.Optional("offset", default=0): vol.All(int, vol.Range(min=0)),
-        vol.Optional("favorite", default=False): bool,
-        vol.Optional("favorites_only", default=False): bool,
-        vol.Optional("compact", default=False): bool,
+        **LIBRARY_GET_FIELDS,
     }
 )
 @websocket_api.async_response
@@ -408,9 +392,7 @@ async def websocket_get_library(
     {
         vol.Required("type"): "maverick_music_flow/favorites/get",
         **BASE_SCHEMA,
-        vol.Optional("media_types"): [str],
-        vol.Optional("limit"): int,
-        vol.Optional("refresh", default=False): bool,
+        **FAVORITES_GET_FIELDS,
     }
 )
 @websocket_api.async_response
@@ -430,14 +412,7 @@ async def websocket_get_favorites(
     {
         vol.Required("type"): "maverick_music_flow/favorites/set",
         **BASE_SCHEMA,
-        vol.Required("favorite"): bool,
-        vol.Optional("uri"): str,
-        vol.Optional("media_type"): str,
-        vol.Optional("item_id"): str,
-        vol.Optional("provider"): str,
-        vol.Optional("library_item_id"): str,
-        vol.Optional("entry"): dict,
-        vol.Optional("remove_args"): dict,
+        **FAVORITES_SET_FIELDS,
     }
 )
 @websocket_api.async_response
@@ -457,15 +432,7 @@ async def websocket_set_favorite(
     {
         vol.Required("type"): "maverick_music_flow/search/get",
         **BASE_SCHEMA,
-        vol.Optional("query"): str,
-        vol.Optional("search"): str,
-        vol.Optional("search_query"): str,
-        vol.Optional("name"): str,
-        vol.Optional("media_type"): vol.Any(str, [str]),
-        vol.Optional("media_types"): [str],
-        vol.Optional("limit"): int,
-        vol.Optional("library_only", default=False): bool,
-        vol.Optional("provider_only", default=False): bool,
+        **SEARCH_GET_FIELDS,
     }
 )
 @websocket_api.async_response
