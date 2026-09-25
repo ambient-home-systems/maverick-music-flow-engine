@@ -6,10 +6,20 @@ from typing import Any
 
 import voluptuous as vol
 
+from homeassistant.auth.permissions.const import POLICY_CONTROL
 from homeassistant.components import websocket_api
 from homeassistant.components.websocket_api import ActiveConnection
 from homeassistant.core import HomeAssistant, callback
 
+from .authorization import (
+    ACCESS_MANAGE,
+    access_denial,
+    command_name,
+    payload_targets,
+    requires_target,
+    stored_targets,
+    websocket_access_level,
+)
 from .command_bridge import (
     BASE_SCHEMA,
     FAVORITES_GET_FIELDS,
@@ -20,7 +30,7 @@ from .command_bridge import (
     SEARCH_GET_FIELDS,
     strip_internal_keys,
 )
-from .const import CONF_INSTANCE_ID, CONF_PROFILE_ID, DOMAIN
+from .const import CONF_INSTANCE_ID, CONF_PROFILE_ID, DEFAULT_PROFILE_ID, DOMAIN
 from .runtime import HomeiiFlowRuntime
 from .radio_directory import search_stations
 from .saved_playlists import list_playlists, save_playlist, play_playlist, delete_playlist
@@ -38,6 +48,43 @@ def _command_payload(msg: dict[str, Any]) -> dict[str, Any]:
     payload.pop("id", None)
     payload.pop("type", None)
     return payload
+
+
+def _authorize(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> bool:
+    """Return whether the connected user may run msg; send ERR_UNAUTHORIZED otherwise.
+
+    Every handler calls this first. The level comes from the authorization tables, so an
+    unclassified command is refused. Player targets are mapped to their media_player
+    entity and checked against the user's Home Assistant entity permissions.
+    """
+    runtime = _runtime(hass)
+    payload = _command_payload(msg)
+    name = command_name(msg["type"])
+    level = websocket_access_level(msg["type"], payload)
+    targets = payload_targets(name, payload)
+    if level == ACCESS_MANAGE:
+        profile_id = str(payload.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID)
+        targets += stored_targets(
+            name,
+            payload,
+            schedules=runtime.schedules(profile_id),
+            timers=runtime.timers(profile_id),
+            volume_rules=runtime.volume_rules(profile_id),
+            default_profile_id=DEFAULT_PROFILE_ID,
+        )
+    user = connection.user
+    denial = access_denial(
+        level,
+        is_admin=bool(user.is_admin),
+        can_control=lambda entity_id: bool(user.permissions.check_entity(entity_id, POLICY_CONTROL)),
+        targets=[runtime.control_entity_id(target) for target in targets],
+        require_target=requires_target(name, level),
+        management_allowed=runtime.non_admin_management_allowed(payload.get(CONF_INSTANCE_ID)),
+    )
+    if denial is None:
+        return True
+    connection.send_error(msg["id"], websocket_api.ERR_UNAUTHORIZED, denial.reason)
+    return False
 
 
 def async_register_websocket_commands(hass: HomeAssistant) -> None:
@@ -95,6 +142,8 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
 @callback
 def websocket_get_context(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return Engine context."""
+    if not _authorize(hass, connection, msg):
+        return
     result = _runtime(hass).context(
         instance_id=msg.get(CONF_INSTANCE_ID),
         profile_id=msg.get(CONF_PROFILE_ID),
@@ -106,6 +155,8 @@ def websocket_get_context(hass: HomeAssistant, connection: ActiveConnection, msg
 @websocket_api.async_response
 async def websocket_get_bootstrap(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return a coherent startup snapshot in one Home Assistant round trip."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         result = await _runtime(hass).async_bootstrap_snapshot(
             instance_id=msg.get(CONF_INSTANCE_ID),
@@ -120,6 +171,8 @@ async def websocket_get_bootstrap(hass: HomeAssistant, connection: ActiveConnect
 @callback
 def websocket_get_required_connections(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return required Engine connection health."""
+    if not _authorize(hass, connection, msg):
+        return
     connection.send_result(msg["id"], _runtime(hass).required_connections_snapshot())
 
 
@@ -127,6 +180,8 @@ def websocket_get_required_connections(hass: HomeAssistant, connection: ActiveCo
 @callback
 def websocket_get_stats(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return Engine stats."""
+    if not _authorize(hass, connection, msg):
+        return
     connection.send_result(msg["id"], _runtime(hass).stats())
 
 
@@ -134,6 +189,8 @@ def websocket_get_stats(hass: HomeAssistant, connection: ActiveConnection, msg: 
 @callback
 def websocket_get_playback_stats(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return passive playback statistics."""
+    if not _authorize(hass, connection, msg):
+        return
     connection.send_result(msg["id"], _runtime(hass).playback_statistics())
 
 
@@ -148,6 +205,8 @@ def websocket_get_playback_stats(hass: HomeAssistant, connection: ActiveConnecti
 @websocket_api.async_response
 async def websocket_get_players(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return Engine player state."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_players_snapshot())
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -162,6 +221,8 @@ def websocket_run_diagnostics(
     msg: dict[str, Any],
 ) -> None:
     """Return Engine diagnostics."""
+    if not _authorize(hass, connection, msg):
+        return
     runtime = _runtime(hass)
     connection.send_result(
         msg["id"],
@@ -194,6 +255,8 @@ def websocket_get_orchestration_status(
     msg: dict[str, Any],
 ) -> None:
     """Return Engine orchestration status."""
+    if not _authorize(hass, connection, msg):
+        return
     connection.send_result(msg["id"], _runtime(hass).orchestration_status())
 
 
@@ -205,6 +268,8 @@ async def websocket_run_orchestration_once(
     msg: dict[str, Any],
 ) -> None:
     """Run one Engine orchestration pass."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_tick_orchestration())
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -236,6 +301,8 @@ async def websocket_play_media(
     msg: dict[str, Any],
 ) -> None:
     """Play media through the Engine proxy."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_play_media(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -270,6 +337,8 @@ async def websocket_player_command(
     msg: dict[str, Any],
 ) -> None:
     """Run a media player command through the Engine proxy."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_player_command(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -290,6 +359,8 @@ async def websocket_music_assistant_command(
     msg: dict[str, Any],
 ) -> None:
     """Run a Music Assistant command through the Engine server bridge."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_music_assistant_command(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -310,6 +381,8 @@ async def websocket_get_queue(
     msg: dict[str, Any],
 ) -> None:
     """Return queue data."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_get_queue(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -337,6 +410,8 @@ async def websocket_queue_action(
     msg: dict[str, Any],
 ) -> None:
     """Run a queue item action through the Engine."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_queue_action(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -362,6 +437,8 @@ async def websocket_transfer_queue(
     msg: dict[str, Any],
 ) -> None:
     """Transfer a Music Assistant queue through the Engine proxy."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_transfer_queue(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -382,6 +459,8 @@ async def websocket_get_library(
     msg: dict[str, Any],
 ) -> None:
     """Return library data."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_get_library(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -402,6 +481,8 @@ async def websocket_get_favorites(
     msg: dict[str, Any],
 ) -> None:
     """Return one aggregated Music Assistant favorites snapshot."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_get_favorites(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -422,6 +503,8 @@ async def websocket_set_favorite(
     msg: dict[str, Any],
 ) -> None:
     """Add or remove a Music Assistant favorite through the Engine."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_set_favorite(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -442,6 +525,8 @@ async def websocket_get_search(
     msg: dict[str, Any],
 ) -> None:
     """Return Music Assistant search data."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_get_search(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -466,6 +551,8 @@ async def websocket_apply_group(
     msg: dict[str, Any],
 ) -> None:
     """Apply group changes."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_apply_group(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -476,6 +563,8 @@ async def websocket_apply_group(
 @callback
 def websocket_get_schedules(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return stored schedules."""
+    if not _authorize(hass, connection, msg):
+        return
     runtime = _runtime(hass)
     profile_id = msg.get(CONF_PROFILE_ID)
     connection.send_result(
@@ -526,6 +615,8 @@ async def websocket_set_schedule(
     msg: dict[str, Any],
 ) -> None:
     """Store a schedule."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_set_schedule(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -546,6 +637,8 @@ async def websocket_delete_schedule(
     msg: dict[str, Any],
 ) -> None:
     """Delete a schedule."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_delete_schedule(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -567,6 +660,8 @@ async def websocket_run_schedule(
     msg: dict[str, Any],
 ) -> None:
     """Run a stored schedule immediately."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_run_schedule_now(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -577,6 +672,8 @@ async def websocket_run_schedule(
 @callback
 def websocket_get_timers(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return stored timers."""
+    if not _authorize(hass, connection, msg):
+        return
     runtime = _runtime(hass)
     profile_id = msg.get(CONF_PROFILE_ID)
     connection.send_result(
@@ -613,6 +710,8 @@ async def websocket_set_timer(
     msg: dict[str, Any],
 ) -> None:
     """Store a timer."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_set_timer(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -635,6 +734,8 @@ async def websocket_delete_timer(
     msg: dict[str, Any],
 ) -> None:
     """Delete a timer."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_delete_timer(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -645,6 +746,8 @@ async def websocket_delete_timer(
 @callback
 def websocket_get_volume_rules(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return stored volume rules."""
+    if not _authorize(hass, connection, msg):
+        return
     runtime = _runtime(hass)
     profile_id = msg.get(CONF_PROFILE_ID)
     connection.send_result(
@@ -676,6 +779,8 @@ async def websocket_set_volume_rule(
     msg: dict[str, Any],
 ) -> None:
     """Store a volume rule."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_set_volume_rule(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -696,6 +801,8 @@ async def websocket_delete_volume_rule(
     msg: dict[str, Any],
 ) -> None:
     """Delete one volume rule."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_delete_volume_rule(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -710,6 +817,8 @@ async def websocket_clear_volume_rules(
     msg: dict[str, Any],
 ) -> None:
     """Clear volume rules."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         profile_id = str(msg.get(CONF_PROFILE_ID) or "default")
         connection.send_result(msg["id"], await _runtime(hass).async_clear_volume_rules(profile_id))
@@ -721,6 +830,8 @@ async def websocket_clear_volume_rules(
 @callback
 def websocket_get_announcements(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return recorded announcements."""
+    if not _authorize(hass, connection, msg):
+        return
     connection.send_result(msg["id"], {"announcements": _runtime(hass).announcements(msg.get(CONF_PROFILE_ID))})
 
 
@@ -728,6 +839,8 @@ def websocket_get_announcements(hass: HomeAssistant, connection: ActiveConnectio
 @callback
 def websocket_get_activity(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return recent Engine activity."""
+    if not _authorize(hass, connection, msg):
+        return
     runtime = _runtime(hass)
     profile_id = msg.get(CONF_PROFILE_ID)
     connection.send_result(
@@ -744,6 +857,8 @@ def websocket_get_activity(hass: HomeAssistant, connection: ActiveConnection, ms
 @callback
 def websocket_get_screensaver(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return system-wide screensaver configuration and state."""
+    if not _authorize(hass, connection, msg):
+        return
     connection.send_result(msg["id"], _runtime(hass).screensaver_state(msg.get(CONF_PROFILE_ID)))
 
 
@@ -770,6 +885,8 @@ async def websocket_set_screensaver(
     msg: dict[str, Any],
 ) -> None:
     """Store system-wide screensaver configuration."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_set_screensaver_config(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -789,6 +906,8 @@ async def websocket_show_screensaver(
     msg: dict[str, Any],
 ) -> None:
     """Request loaded frontend screensaver agents to open immediately."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_request_screensaver_show(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -818,6 +937,8 @@ async def websocket_announce(
     msg: dict[str, Any],
 ) -> None:
     """Send and record an announcement request."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).async_send_announcement(_command_payload(msg)))
     except Exception as err:  # noqa: BLE001 - surfaced to frontend diagnostics
@@ -838,6 +959,8 @@ def websocket_sendspin_status(
     msg: dict[str, Any],
 ) -> None:
     """Return Sendspin status."""
+    if not _authorize(hass, connection, msg):
+        return
     connection.send_result(msg["id"], _runtime(hass).sendspin_status(_command_payload(msg)))
 
 
@@ -848,8 +971,7 @@ def websocket_sendspin_status(
 @websocket_api.async_response
 async def websocket_queue_settings(hass, connection, msg):
     """Read shared queue preferences; only HA administrators may change them."""
-    if "values" in msg and not connection.user.is_admin:
-        connection.send_error(msg["id"], "unauthorized", "Administrator access is required to change shared MA preferences")
+    if not _authorize(hass, connection, msg):
         return
     try:
         result = await _runtime(hass).async_queue_settings(_command_payload(msg))
@@ -863,6 +985,8 @@ async def websocket_queue_settings(hass, connection, msg):
 @callback
 def websocket_get_artwork_lighting(hass, connection, msg):
     """Return persistent player/light assignments and their current status."""
+    if not _authorize(hass, connection, msg):
+        return
     connection.send_result(msg["id"], _runtime(hass).artwork_lighting.snapshot())
 
 
@@ -875,6 +999,8 @@ def websocket_get_artwork_lighting(hass, connection, msg):
 @websocket_api.async_response
 async def websocket_set_artwork_lighting(hass, connection, msg):
     """Persist and apply a player's artwork lighting configuration."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await _runtime(hass).artwork_lighting.configure(_command_payload(msg)))
     except Exception as err:
@@ -887,6 +1013,8 @@ async def websocket_set_artwork_lighting(hass, connection, msg):
 @websocket_api.async_response
 async def websocket_radio_search(hass, connection, msg):
     """Search the public station directory, preserving artwork through the Engine."""
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await search_stations(_runtime(hass), _command_payload(msg)))
     except Exception as err:
@@ -896,6 +1024,8 @@ async def websocket_radio_search(hass, connection, msg):
 @websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/interface/get", **BASE_SCHEMA})
 @callback
 def websocket_get_interface_preferences(hass, connection, msg):
+    if not _authorize(hass, connection, msg):
+        return
     connection.send_result(msg["id"], read_preferences(_runtime(hass), msg.get("profile_id")))
 
 
@@ -904,6 +1034,8 @@ def websocket_get_interface_preferences(hass, connection, msg):
     vol.Optional("night_end"): str, vol.Optional("night_days"): [int]})
 @websocket_api.async_response
 async def websocket_set_interface_preferences(hass, connection, msg):
+    if not _authorize(hass, connection, msg):
+        return
     try:
         connection.send_result(msg["id"], await save_preferences(_runtime(hass), _command_payload(msg)))
     except Exception as err:
@@ -913,6 +1045,8 @@ async def websocket_set_interface_preferences(hass, connection, msg):
 @websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/wheels/get", **BASE_SCHEMA})
 @callback
 def websocket_get_wheel_preferences(hass, connection, msg):
+    if not _authorize(hass, connection, msg):
+        return
     connection.send_result(msg["id"], read_wheel_preferences(_runtime(hass), msg.get("profile_id"), connection.user.id))
 
 
@@ -921,6 +1055,8 @@ def websocket_get_wheel_preferences(hass, connection, msg):
     vol.Required("preference"): dict})
 @websocket_api.async_response
 async def websocket_set_wheel_preferences(hass, connection, msg):
+    if not _authorize(hass, connection, msg):
+        return
     try:
         result = await save_wheel_preferences(_runtime(hass), _command_payload(msg), connection.user.id, connection.user.is_admin)
         connection.send_result(msg["id"], result)
@@ -933,6 +1069,8 @@ async def websocket_set_wheel_preferences(hass, connection, msg):
     vol.Optional("name"): str, vol.Optional("uris"): [str], vol.Optional("playlist_id"): str})
 @websocket_api.async_response
 async def websocket_saved_playlists(hass, connection, msg):
+    if not _authorize(hass, connection, msg):
+        return
     try:
         runtime = _runtime(hass)
         payload = _command_payload(msg)

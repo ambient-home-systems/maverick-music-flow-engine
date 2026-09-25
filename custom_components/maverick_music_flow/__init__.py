@@ -11,10 +11,16 @@ import voluptuous as vol
 
 from aiohttp import web
 
+from homeassistant.auth.permissions.const import POLICY_CONTROL
 from homeassistant.components.http import HomeAssistantView, StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.exceptions import (
+    HomeAssistantError,
+    ServiceValidationError,
+    Unauthorized,
+    UnknownUser,
+)
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.service import async_register_admin_service
@@ -27,6 +33,15 @@ from .artwork_proxy import (
     async_get_strict_artwork_session,
     home_assistant_base_url,
 )
+from .authorization import (
+    ACCESS_MANAGE,
+    access_denial,
+    http_access_level,
+    payload_targets,
+    requires_target,
+    service_access_level,
+    stored_targets,
+)
 from .command_bridge import (
     HTTP_COMMAND_SCHEMAS,
     music_assistant_command_allowed,
@@ -35,6 +50,7 @@ from .command_bridge import (
 from .sendspin_bridge import HomeiiFlowSendspinView
 
 from .const import (
+    CONF_ALLOW_NON_ADMIN_MANAGEMENT,
     CONF_ENABLE_EXPERIMENTAL,
     CONF_INSTANCE_ID,
     CONF_MUSIC_ASSISTANT_EXTERNAL_URL,
@@ -452,8 +468,9 @@ class HomeiiFlowCommandView(HomeAssistantView):
     The card falls back to this view for reads (get_context, bootstrap/get, queue/get,
     library/get, favorites/get, search/get). It also accepts two writes, favorites/set and
     ma/command. Every command validates its body with the same schema as the matching
-    WebSocket command and applies the same authorization, so HTTP grants nothing that
-    WebSocket does not. ma/command is limited to the Music Assistant command allowlist.
+    WebSocket command and applies the same authorization (see ``authorization.py``), so
+    HTTP grants nothing that WebSocket does not. ma/command is limited to the Music
+    Assistant command allowlist, and a refused request returns HTTP 403.
     """
 
     url = "/api/maverick_music_flow/command/{command:.+}"
@@ -483,6 +500,24 @@ class HomeiiFlowCommandView(HomeAssistantView):
         # "type" is the WebSocket command type the card also sends over HTTP.
         payload.pop("type", None)
         runtime = async_get_runtime(self.hass)
+        if clean_command == "ma/command" and not music_assistant_command_allowed(
+            str(payload["command"]).strip()
+        ):
+            raise web.HTTPForbidden(text="Music Assistant command is not allowed")
+        user = request["hass_user"]
+        level = http_access_level(clean_command, payload)
+        denial = access_denial(
+            level,
+            is_admin=bool(user.is_admin),
+            can_control=lambda entity_id: bool(user.permissions.check_entity(entity_id, POLICY_CONTROL)),
+            targets=[
+                runtime.control_entity_id(target)
+                for target in payload_targets(clean_command, payload)
+            ],
+            require_target=requires_target(clean_command, level),
+        )
+        if denial is not None:
+            raise web.HTTPForbidden(text=denial.reason)
         instance_id = str(payload.get(CONF_INSTANCE_ID) or "").strip() or None
         profile_id = str(payload.get(CONF_PROFILE_ID) or "").strip() or None
         if clean_command == "get_context":
@@ -500,8 +535,6 @@ class HomeiiFlowCommandView(HomeAssistantView):
         elif clean_command == "search/get":
             result = await runtime.async_get_search(payload)
         else:  # ma/command
-            if not music_assistant_command_allowed(str(payload["command"]).strip()):
-                raise web.HTTPForbidden(text="Music Assistant command is not allowed")
             result = await runtime.async_music_assistant_command(payload)
         return web.json_response(result)
 
@@ -518,6 +551,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     instance_id = str(entry.data.get(CONF_INSTANCE_ID) or DEFAULT_INSTANCE_ID)
     profile_id = str(entry.options.get(CONF_PROFILE_ID) or entry.data.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID)
     enable_experimental = bool(entry.options.get(CONF_ENABLE_EXPERIMENTAL, False))
+    allow_non_admin_management = bool(entry.options.get(CONF_ALLOW_NON_ADMIN_MANAGEMENT, False))
     music_assistant_url = str(
         entry.options.get(CONF_MUSIC_ASSISTANT_URL)
         or entry.data.get(CONF_MUSIC_ASSISTANT_URL)
@@ -542,6 +576,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         music_assistant_url=music_assistant_url,
         music_assistant_external_url=music_assistant_external_url,
         music_assistant_token=music_assistant_token,
+        allow_non_admin_management=allow_non_admin_management,
     )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_entry))
@@ -603,15 +638,75 @@ async def async_prepare_runtime(hass: HomeAssistant) -> HomeiiFlowRuntime:
     return runtime
 
 
+async def _async_check_service_access(hass: HomeAssistant, service: str, call: ServiceCall) -> None:
+    """Raise Unauthorized when the person behind a service call may not run it.
+
+    Calls without a user context (automations, scripts, the system user) always pass.
+    Administrators may call every service; other users follow the same rules as the
+    WebSocket commands: playback services need the ``control`` entity permission on the
+    target players, schedule/timer/volume-rule services additionally need the
+    "Allow non-admin users to manage ..." option, and configuration services are refused.
+    """
+    user_id = call.context.user_id
+    if not user_id:
+        return
+    user = await hass.auth.async_get_user(user_id)
+    if user is None:
+        raise UnknownUser(context=call.context)
+    runtime = async_get_runtime(hass)
+    payload = dict(call.data)
+    level = service_access_level(service)
+    targets = payload_targets(service, payload)
+    if level == ACCESS_MANAGE:
+        profile_id = str(payload.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID)
+        targets += stored_targets(
+            service,
+            payload,
+            schedules=runtime.schedules(profile_id),
+            timers=runtime.timers(profile_id),
+            volume_rules=runtime.volume_rules(profile_id),
+            default_profile_id=DEFAULT_PROFILE_ID,
+        )
+    denial = access_denial(
+        level,
+        is_admin=bool(user.is_admin),
+        can_control=lambda entity_id: bool(user.permissions.check_entity(entity_id, POLICY_CONTROL)),
+        targets=[runtime.control_entity_id(target) for target in targets],
+        require_target=requires_target(service, level),
+        management_allowed=runtime.non_admin_management_allowed(),
+    )
+    if denial is None:
+        return
+    if denial.entity_id:
+        raise Unauthorized(context=call.context, entity_id=denial.entity_id, permission=POLICY_CONTROL)
+    raise Unauthorized(context=call.context)
+
+
+def _async_register_guarded_service(
+    hass: HomeAssistant,
+    service: str,
+    handler: Any,
+    schema: vol.Schema | None = None,
+) -> None:
+    """Register a service whose handler runs only after the authorization check."""
+    if hass.services.has_service(DOMAIN, service):
+        return
+
+    async def guarded(call: ServiceCall) -> None:
+        await _async_check_service_access(hass, service, call)
+        await handler(call)
+
+    hass.services.async_register(DOMAIN, service, guarded, schema=schema)
+
+
 def _async_register_services(hass: HomeAssistant) -> None:
     """Register optional automation-facing services."""
     async def set_interface_preferences(call: ServiceCall) -> None:
         await save_preferences(hass.data[DOMAIN]["runtime"], dict(call.data))
 
-    if not hass.services.has_service(DOMAIN, "set_interface_preferences"):
-        hass.services.async_register(DOMAIN, "set_interface_preferences", set_interface_preferences,
-            schema=vol.Schema({vol.Optional("profile_id"): str, vol.Optional("night_mode"): str,
-                vol.Optional("night_start"): str, vol.Optional("night_end"): str, vol.Optional("night_days"): [int]}))
+    _async_register_guarded_service(hass, "set_interface_preferences", set_interface_preferences,
+        schema=vol.Schema({vol.Optional("profile_id"): str, vol.Optional("night_mode"): str,
+            vol.Optional("night_start"): str, vol.Optional("night_end"): str, vol.Optional("night_days"): [int]}))
 
 
     async def set_volume_rule(call: ServiceCall) -> None:
@@ -682,109 +777,20 @@ def _async_register_services(hass: HomeAssistant) -> None:
         runtime = async_get_runtime(hass)
         await runtime.async_request_screensaver_show(dict(call.data))
 
-    if not hass.services.has_service(DOMAIN, SERVICE_SET_VOLUME_RULE):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_SET_VOLUME_RULE,
-            set_volume_rule,
-            schema=SERVICE_SET_VOLUME_RULE_SCHEMA,
-        )
-    if not hass.services.has_service(DOMAIN, SERVICE_CLEAR_VOLUME_RULES):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_CLEAR_VOLUME_RULES,
-            clear_volume_rules,
-            schema=SERVICE_CLEAR_VOLUME_RULES_SCHEMA,
-        )
-    if not hass.services.has_service(DOMAIN, SERVICE_DELETE_VOLUME_RULE):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_DELETE_VOLUME_RULE,
-            delete_volume_rule,
-            schema=SERVICE_DELETE_VOLUME_RULE_SCHEMA,
-        )
-    if not hass.services.has_service(DOMAIN, SERVICE_SET_SCHEDULE):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_SET_SCHEDULE,
-            set_schedule,
-            schema=SERVICE_SET_SCHEDULE_SCHEMA,
-        )
-    if not hass.services.has_service(DOMAIN, SERVICE_DELETE_SCHEDULE):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_DELETE_SCHEDULE,
-            delete_schedule,
-            schema=SERVICE_DELETE_SCHEDULE_SCHEMA,
-        )
-    if not hass.services.has_service(DOMAIN, SERVICE_RUN_SCHEDULE):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_RUN_SCHEDULE,
-            run_schedule,
-            schema=SERVICE_RUN_SCHEDULE_SCHEMA,
-        )
-    if not hass.services.has_service(DOMAIN, SERVICE_SET_TIMER):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_SET_TIMER,
-            set_timer,
-            schema=SERVICE_SET_TIMER_SCHEMA,
-        )
-    if not hass.services.has_service(DOMAIN, SERVICE_DELETE_TIMER):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_DELETE_TIMER,
-            delete_timer,
-            schema=SERVICE_DELETE_TIMER_SCHEMA,
-        )
-    if not hass.services.has_service(DOMAIN, SERVICE_ANNOUNCE):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_ANNOUNCE,
-            announce,
-            schema=SERVICE_ANNOUNCE_SCHEMA,
-        )
-    if not hass.services.has_service(DOMAIN, SERVICE_PLAY_MEDIA):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_PLAY_MEDIA,
-            play_media,
-            schema=SERVICE_PLAY_MEDIA_SCHEMA,
-        )
+    _async_register_guarded_service(hass, SERVICE_SET_VOLUME_RULE, set_volume_rule, schema=SERVICE_SET_VOLUME_RULE_SCHEMA)
+    _async_register_guarded_service(hass, SERVICE_CLEAR_VOLUME_RULES, clear_volume_rules, schema=SERVICE_CLEAR_VOLUME_RULES_SCHEMA)
+    _async_register_guarded_service(hass, SERVICE_DELETE_VOLUME_RULE, delete_volume_rule, schema=SERVICE_DELETE_VOLUME_RULE_SCHEMA)
+    _async_register_guarded_service(hass, SERVICE_SET_SCHEDULE, set_schedule, schema=SERVICE_SET_SCHEDULE_SCHEMA)
+    _async_register_guarded_service(hass, SERVICE_DELETE_SCHEDULE, delete_schedule, schema=SERVICE_DELETE_SCHEDULE_SCHEMA)
+    _async_register_guarded_service(hass, SERVICE_RUN_SCHEDULE, run_schedule, schema=SERVICE_RUN_SCHEDULE_SCHEMA)
+    _async_register_guarded_service(hass, SERVICE_SET_TIMER, set_timer, schema=SERVICE_SET_TIMER_SCHEMA)
+    _async_register_guarded_service(hass, SERVICE_DELETE_TIMER, delete_timer, schema=SERVICE_DELETE_TIMER_SCHEMA)
+    _async_register_guarded_service(hass, SERVICE_ANNOUNCE, announce, schema=SERVICE_ANNOUNCE_SCHEMA)
+    _async_register_guarded_service(hass, SERVICE_PLAY_MEDIA, play_media, schema=SERVICE_PLAY_MEDIA_SCHEMA)
     if not hass.services.has_service(DOMAIN, SERVICE_SET_QUEUE_SETTINGS):
         async_register_admin_service(hass, DOMAIN, SERVICE_SET_QUEUE_SETTINGS, set_queue_settings, schema=SERVICE_SET_QUEUE_SETTINGS_SCHEMA)
-    if not hass.services.has_service(DOMAIN, SERVICE_PLAYER_COMMAND):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_PLAYER_COMMAND,
-            player_command,
-            schema=SERVICE_PLAYER_COMMAND_SCHEMA,
-        )
-    if not hass.services.has_service(DOMAIN, SERVICE_TRANSFER_QUEUE):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_TRANSFER_QUEUE,
-            transfer_queue,
-            schema=SERVICE_TRANSFER_QUEUE_SCHEMA,
-        )
-    if not hass.services.has_service(DOMAIN, SERVICE_RUN_ORCHESTRATION):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_RUN_ORCHESTRATION,
-            run_orchestration,
-        )
-    if not hass.services.has_service(DOMAIN, SERVICE_SET_SCREENSAVER):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_SET_SCREENSAVER,
-            set_screensaver,
-            schema=SERVICE_SET_SCREENSAVER_SCHEMA,
-        )
-    if not hass.services.has_service(DOMAIN, SERVICE_SHOW_SCREENSAVER):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_SHOW_SCREENSAVER,
-            show_screensaver,
-            schema=SERVICE_SHOW_SCREENSAVER_SCHEMA,
-        )
+    _async_register_guarded_service(hass, SERVICE_PLAYER_COMMAND, player_command, schema=SERVICE_PLAYER_COMMAND_SCHEMA)
+    _async_register_guarded_service(hass, SERVICE_TRANSFER_QUEUE, transfer_queue, schema=SERVICE_TRANSFER_QUEUE_SCHEMA)
+    _async_register_guarded_service(hass, SERVICE_RUN_ORCHESTRATION, run_orchestration)
+    _async_register_guarded_service(hass, SERVICE_SET_SCREENSAVER, set_screensaver, schema=SERVICE_SET_SCREENSAVER_SCHEMA)
+    _async_register_guarded_service(hass, SERVICE_SHOW_SCREENSAVER, show_screensaver, schema=SERVICE_SHOW_SCREENSAVER_SCHEMA)

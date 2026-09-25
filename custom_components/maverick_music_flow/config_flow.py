@@ -14,6 +14,7 @@ from homeassistant.helpers import selector
 from .onboarding_auth import create_onboarding_token, is_ha_interface_url
 
 from .const import (
+    CONF_ALLOW_NON_ADMIN_MANAGEMENT,
     CONF_ENABLE_EXPERIMENTAL,
     CONF_INSTANCE_ID,
     CONF_MUSIC_ASSISTANT_EXTERNAL_URL,
@@ -401,6 +402,9 @@ class HomeiiFlowOptionsFlow(config_entries.OptionsFlow):
                 errors[CONF_MUSIC_ASSISTANT_TOKEN] = "required"
             updated = dict(self._config_entry.options)
             updated.update(user_input)
+            updated[CONF_ALLOW_NON_ADMIN_MANAGEMENT] = bool(
+                user_input.get(CONF_ALLOW_NON_ADMIN_MANAGEMENT, False)
+            )
             if effective_token:
                 updated[CONF_MUSIC_ASSISTANT_TOKEN] = effective_token
             if not errors:
@@ -438,6 +442,12 @@ class HomeiiFlowOptionsFlow(config_entries.OptionsFlow):
                         ),
                     ): str,
                     vol.Optional(CONF_MUSIC_ASSISTANT_TOKEN, default=""): str,
+                    vol.Optional(
+                        CONF_ALLOW_NON_ADMIN_MANAGEMENT,
+                        default=bool(
+                            self._config_entry.options.get(CONF_ALLOW_NON_ADMIN_MANAGEMENT, False)
+                        ),
+                    ): bool,
                 }
             ),
             errors=errors,

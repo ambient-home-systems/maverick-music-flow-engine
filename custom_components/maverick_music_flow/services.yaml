@@ -1,6 +1,6 @@
 set_volume_rule:
   name: Set volume rule
-  description: Store a HOMEii Flow Engine volume rule for a profile/player.
+  description: Store a HOMEii Flow Engine volume rule for a profile/player. When a person calls this action it requires administrator access, unless the "Allow non-admin users to manage schedules, timers and volume rules" option is on and the person may control the target player. Automations are not affected.
   fields:
     profile_id:
       name: Profile ID
@@ -51,7 +51,7 @@ set_volume_rule:
 
 clear_volume_rules:
   name: Clear volume rules
-  description: Clear stored HOMEii Flow Engine volume rules for a profile.
+  description: Clear stored HOMEii Flow Engine volume rules for a profile. When a person calls this action it requires administrator access, unless the "Allow non-admin users to manage schedules, timers and volume rules" option is on and the person may control the target player. Automations are not affected.
   fields:
     profile_id:
       name: Profile ID
@@ -62,7 +62,7 @@ clear_volume_rules:
 
 delete_volume_rule:
   name: Delete volume rule
-  description: Delete one stored HOMEii Flow Engine volume rule for a profile/player.
+  description: Delete one stored HOMEii Flow Engine volume rule for a profile/player. When a person calls this action it requires administrator access, unless the "Allow non-admin users to manage schedules, timers and volume rules" option is on and the person may control the target player. Automations are not affected.
   fields:
     profile_id:
       name: Profile ID
@@ -80,7 +80,7 @@ delete_volume_rule:
 
 set_schedule:
   name: Set schedule
-  description: Store or update a HOMEii Flow Engine playback schedule.
+  description: Store or update a HOMEii Flow Engine playback schedule. When a person calls this action it requires administrator access, unless the "Allow non-admin users to manage schedules, timers and volume rules" option is on and the person may control the target player. Automations are not affected.
   fields:
     profile_id:
       name: Profile ID
@@ -193,7 +193,7 @@ set_schedule:
 
 delete_schedule:
   name: Delete schedule
-  description: Delete a stored HOMEii Flow Engine schedule by id.
+  description: Delete a stored HOMEii Flow Engine schedule by id. When a person calls this action it requires administrator access, unless the "Allow non-admin users to manage schedules, timers and volume rules" option is on and the person may control the target player. Automations are not affected.
   fields:
     profile_id:
       name: Profile ID
@@ -210,7 +210,7 @@ delete_schedule:
 
 run_schedule:
   name: Run schedule now
-  description: Run a stored HOMEii Flow Engine schedule immediately. Useful for testing a wake schedule without waiting for its time.
+  description: Run a stored HOMEii Flow Engine schedule immediately. Useful for testing a wake schedule without waiting for its time. When a person calls this action it requires administrator access, unless the "Allow non-admin users to manage schedules, timers and volume rules" option is on and the person may control the target player. Automations are not affected.
   fields:
     profile_id:
       name: Profile ID
@@ -227,7 +227,7 @@ run_schedule:
 
 set_timer:
   name: Set timer
-  description: Store or update a HOMEii Flow Engine one-shot timer. The Engine executes it even when the dashboard/card is closed.
+  description: Store or update a HOMEii Flow Engine one-shot timer. The Engine executes it even when the dashboard/card is closed. When a person calls this action it requires administrator access, unless the "Allow non-admin users to manage schedules, timers and volume rules" option is on and the person may control the target player. Automations are not affected.
   fields:
     profile_id:
       name: Profile ID
@@ -279,7 +279,7 @@ set_timer:
 
 delete_timer:
   name: Delete timer
-  description: Delete a stored HOMEii Flow Engine timer by id or player.
+  description: Delete a stored HOMEii Flow Engine timer by id or player. When a person calls this action it requires administrator access, unless the "Allow non-admin users to manage schedules, timers and volume rules" option is on and the person may control the target player. Automations are not affected.
   fields:
     profile_id:
       name: Profile ID
@@ -301,7 +301,7 @@ delete_timer:
 
 announce:
   name: Announce
-  description: Send an announcement through HOMEii Flow Engine and record it in the activity log.
+  description: Send an announcement through HOMEii Flow Engine and record it in the activity log. When a person calls this action they need permission to control the target player. Automations are not affected.
   fields:
     profile_id:
       name: Profile ID
@@ -350,7 +350,7 @@ announce:
 
 play_media:
   name: Play media
-  description: Play media through HOMEii Flow Engine. The Engine tries Music Assistant first and falls back to media_player.play_media.
+  description: Play media through HOMEii Flow Engine. The Engine tries Music Assistant first and falls back to media_player.play_media. When a person calls this action they need permission to control the target player. Automations are not affected.
   fields:
     profile_id:
       name: Profile ID
@@ -405,7 +405,7 @@ play_media:
 
 player_command:
   name: Player command
-  description: Run a media player command through HOMEii Flow Engine.
+  description: Run a media player command through HOMEii Flow Engine. When a person calls this action they need permission to control the target player. Automations are not affected.
   fields:
     profile_id:
       name: Profile ID
@@ -485,7 +485,7 @@ player_command:
 
 transfer_queue:
   name: Transfer queue
-  description: Transfer a Music Assistant queue from one player to another.
+  description: Transfer a Music Assistant queue from one player to another. When a person calls this action they need permission to control the target player. Automations are not affected.
   fields:
     profile_id:
       name: Profile ID
@@ -516,12 +516,12 @@ transfer_queue:
 
 run_orchestration:
   name: Run orchestration
-  description: Run one HOMEii Flow Engine schedule and volume-policy pass immediately.
+  description: Run one HOMEii Flow Engine schedule and volume-policy pass immediately. When a person calls this action it requires administrator access. Automations are not affected.
   fields: {}
 
 set_screensaver:
   name: Set system screensaver
-  description: Configure the HOMEii Flow system-wide dashboard screensaver. Add /maverick_music_flow/maverick-music-flow-system-screensaver.js as a Lovelace JavaScript module resource to activate it on all dashboard pages.
+  description: Configure the HOMEii Flow system-wide dashboard screensaver. Add /maverick_music_flow/maverick-music-flow-system-screensaver.js as a Lovelace JavaScript module resource to activate it on all dashboard pages. When a person calls this action it requires administrator access. Automations are not affected.
   fields:
     profile_id:
       name: Profile ID
@@ -594,7 +594,7 @@ show_screensaver:
 
 set_queue_settings:
   name: Set playback preferences
-  description: Change shared Music Assistant playback preferences for all players. Only supplied fields change. Values are validated and read back from MA; requires administrator access.
+  description: Change shared Music Assistant playback preferences for all players. Only supplied fields change. Values are validated and read back from MA; requires administrator access. When a person calls this action it requires administrator access. Automations are not affected.
   fields:
     autoplay_enabled:
       name: Autoplay by default
@@ -639,7 +639,7 @@ set_queue_settings:
 
 set_interface_preferences:
   name: Set interface preferences
-  description: Save shared night display preferences for a profile. This controls display appearance, not speaker volume.
+  description: Save shared night display preferences for a profile. This controls display appearance, not speaker volume. When a person calls this action it requires administrator access. Automations are not affected.
   fields:
     profile_id:
       selector:

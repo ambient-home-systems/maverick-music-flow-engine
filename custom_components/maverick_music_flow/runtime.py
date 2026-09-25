@@ -544,6 +544,7 @@ class EngineEntry:
     profile_id: str = DEFAULT_PROFILE_ID
     title: str = "HOMEii Flow Engine"
     enable_experimental: bool = False
+    allow_non_admin_management: bool = False
     music_assistant_url: str = ""
     music_assistant_external_url: str = ""
     music_assistant_token: str = field(default="", repr=False)
@@ -557,6 +558,7 @@ class EngineEntry:
             "profile_id": self.profile_id,
             "title": self.title,
             "enable_experimental": self.enable_experimental,
+            "allow_non_admin_management": self.allow_non_admin_management,
             "music_assistant_url_configured": bool(self.music_assistant_url),
             "music_assistant_external_url_configured": bool(self.music_assistant_external_url),
             "music_assistant_token_configured": bool(self.music_assistant_token),
@@ -1978,6 +1980,7 @@ class HomeiiFlowRuntime:
         music_assistant_url: str = "",
         music_assistant_external_url: str = "",
         music_assistant_token: str = "",
+        allow_non_admin_management: bool = False,
     ) -> None:
         """Register a loaded config entry."""
         self._entries[entry_id] = EngineEntry(
@@ -1986,6 +1989,7 @@ class HomeiiFlowRuntime:
             profile_id=profile_id or DEFAULT_PROFILE_ID,
             title=title or "HOMEii Flow Engine",
             enable_experimental=enable_experimental,
+            allow_non_admin_management=bool(allow_non_admin_management),
             music_assistant_url=_normalized_http_url(music_assistant_url),
             music_assistant_external_url=_normalized_http_url(music_assistant_external_url),
             music_assistant_token=_clean_string(music_assistant_token),
@@ -2125,6 +2129,36 @@ class HomeiiFlowRuntime:
                 if entry.instance_id == clean_instance:
                     return entry
         return next(iter(self._entries.values()), None)
+
+    def non_admin_management_allowed(self, instance_id: str | None = None) -> bool:
+        """Return whether non-admin users may manage schedules, timers and volume rules."""
+        entry = self._matching_entry(instance_id)
+        return bool(entry and entry.allow_non_admin_management)
+
+    def control_entity_id(self, target: str) -> str:
+        """Return the media_player entity whose HA permissions govern a player target.
+
+        Targets are whatever callers pass as a player: an HA entity id, a native Music
+        Assistant player or queue id, or a player name. Unknown targets map to the
+        placeholder entity the Engine uses for MA-only players, so a restricted entity
+        policy refuses them instead of letting them through unchecked.
+        """
+        clean = _clean_string(target)
+        if not clean:
+            return ""
+        if clean.startswith("media_player."):
+            return clean
+        known = self._ma_players_by_id.get(clean)
+        if known and _clean_string(known.get("entity_id")):
+            return _clean_string(known.get("entity_id"))
+        for player in self._ma_players_by_entity.values():
+            if clean in {
+                _clean_string(player.get("active_queue")),
+                _clean_string(player.get("mass_player_id")),
+                _clean_string(player.get("raw_player_id")),
+            }:
+                return _clean_string(player.get("entity_id"))
+        return self._ha_entity_for_ma_player({"player_id": clean, "name": clean})
 
     def context(
         self,

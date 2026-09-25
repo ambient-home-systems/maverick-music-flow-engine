@@ -1,7 +1,8 @@
 """Exercise the Music Assistant command bridge: allowlist, internal flags and the HTTP view.
 
 The real policy module, runtime method, WebSocket helper and HTTP view run against fakes
-at the Music Assistant and aiohttp boundaries, without installing Home Assistant.
+at the Music Assistant and aiohttp boundaries, without installing Home Assistant. Requests
+here come from an administrator; test_authorization.py covers other users.
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ def load_command_bridge():
 
 
 BRIDGE = load_command_bridge()
+AUTHORIZATION = importlib.import_module(f"{BRIDGE.__name__.rsplit('.', 1)[0]}.authorization")
 ALLOWLIST = BRIDGE.MUSIC_ASSISTANT_COMMAND_ALLOWLIST
 allowed = BRIDGE.music_assistant_command_allowed
 
@@ -425,8 +427,16 @@ class Forbidden(HTTPError):
     pass
 
 
-class FakeRequest:
+class AdminUser:
+    """An administrator with Home Assistant's default policy (every entity allowed)."""
+
+    is_admin = True
+    permissions = SimpleNamespace(check_entity=lambda entity_id, key: True)
+
+
+class FakeRequest(dict):
     def __init__(self, body):
+        super().__init__(hass_user=AdminUser())
         self._body = body
 
     async def json(self):
@@ -469,6 +479,9 @@ class FakeRuntime:
         self.calls.append(("kwargs", kwargs))
         return {"method": "async_music_assistant_command"}
 
+    def control_entity_id(self, target):
+        return target if str(target).startswith("media_player.") else f"media_player.{target}"
+
 
 def load_command_view(runtime):
     source = COMPONENT / "__init__.py"
@@ -494,6 +507,11 @@ def load_command_view(runtime):
         "async_get_runtime": lambda _hass: runtime,
         "CONF_INSTANCE_ID": "instance_id",
         "CONF_PROFILE_ID": "profile_id",
+        "POLICY_CONTROL": "control",
+        "access_denial": AUTHORIZATION.access_denial,
+        "http_access_level": AUTHORIZATION.http_access_level,
+        "payload_targets": AUTHORIZATION.payload_targets,
+        "requires_target": AUTHORIZATION.requires_target,
     }
     exec(
         compile(
