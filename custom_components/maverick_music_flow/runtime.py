@@ -39,6 +39,7 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from .command_bridge import music_assistant_command_allowed
 from .const import (
     CAPABILITIES,
     DEFAULT_INSTANCE_ID,
@@ -4612,43 +4613,6 @@ class HomeiiFlowRuntime:
         return await async_queue_settings(self._music_assistant_client, payload.get("values"))
 
     @staticmethod
-    def _music_assistant_command_allowed(command: str) -> bool:
-        """Allow card playback/media commands while blocking account and server administration."""
-        clean = str(command or "").strip().lower()
-        if clean == "info":
-            return True
-        if clean == "music/playlists/add_playlist_tracks":
-            return True
-        if clean.startswith("ai_radio/"):
-            return clean in {"ai_radio/hosts/list", "ai_radio/queue_dj/status", "ai_radio/queue_dj/set"}
-        if not clean.startswith(
-            (
-                "players/",
-                "player_queues/",
-                "music/",
-                "metadata/",
-                "audio_analysis/",
-            )
-        ):
-            return False
-        if clean.startswith("music/favorites/"):
-            return clean in {"music/favorites/add_item", "music/favorites/remove_item"}
-        if not clean.startswith("music/"):
-            return True
-        blocked_mutations = (
-            "/create",
-            "/update",
-            "/delete",
-            "/remove",
-            "/import",
-            "/export",
-            "/sync",
-            "/add_playlist",
-            "/remove_playlist",
-        )
-        return not any(token in clean for token in blocked_mutations)
-
-    @staticmethod
     def _music_assistant_command_cacheable(command: str) -> bool:
         """Return whether a read-only media command benefits from persistent SWR."""
         return command.strip().lower() in {
@@ -4684,13 +4648,23 @@ class HomeiiFlowRuntime:
         except Exception:  # noqa: BLE001 - stale data remains valid after refresh failure
             self._media_cache_metrics["refresh_failures"] += 1
 
-    async def async_music_assistant_command(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Run a Music Assistant API command from the Engine server context."""
+    async def async_music_assistant_command(
+        self,
+        payload: dict[str, Any],
+        *,
+        cache_worker: bool = False,
+        cache_refresh: bool = False,
+    ) -> dict[str, Any]:
+        """Run an allowlisted Music Assistant API command from the Engine server context.
+
+        cache_worker and cache_refresh are internal cache controls. They are keyword
+        arguments so no caller-supplied payload key can set them.
+        """
         command = str(payload.get("command") or "").strip()
         args = payload.get("args")
         if not command:
             raise ValueError("command is required")
-        if not self._music_assistant_command_allowed(command):
+        if not music_assistant_command_allowed(command):
             raise ValueError(f"Music Assistant command is not allowed through the card bridge: {command}")
         if args is None:
             args = {}
@@ -4698,8 +4672,6 @@ class HomeiiFlowRuntime:
             raise ValueError("args must be a dictionary")
         cacheable = self._music_assistant_command_cacheable(command)
         cache_key = self._music_assistant_command_cache_key(command, args) if cacheable else ""
-        cache_worker = bool(payload.get("_homeii_cache_worker"))
-        cache_refresh = bool(payload.get("_homeii_cache_refresh"))
         if cacheable and not cache_worker:
             now = time.monotonic()
             cached = self._media_command_cache.get(cache_key)
@@ -4718,11 +4690,9 @@ class HomeiiFlowRuntime:
                     if cache_key not in self._media_command_inflight:
                         task = self.hass.async_create_task(
                             self.async_music_assistant_command(
-                                {
-                                    **payload,
-                                    "_homeii_cache_worker": True,
-                                    "_homeii_cache_refresh": True,
-                                }
+                                payload,
+                                cache_worker=True,
+                                cache_refresh=True,
                             )
                         )
                         self._media_command_inflight[cache_key] = task
@@ -4739,11 +4709,9 @@ class HomeiiFlowRuntime:
             ) + 1
             task = self.hass.async_create_task(
                 self.async_music_assistant_command(
-                    {
-                        **payload,
-                        "_homeii_cache_worker": True,
-                        "_homeii_cache_refresh": cache_refresh,
-                    }
+                    payload,
+                    cache_worker=True,
+                    cache_refresh=cache_refresh,
                 )
             )
             self._media_command_inflight[cache_key] = task
