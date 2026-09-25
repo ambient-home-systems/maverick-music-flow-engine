@@ -14,6 +14,7 @@ from homeassistant.helpers import selector
 from .onboarding_auth import create_onboarding_token, is_ha_interface_url
 
 from .const import (
+    CONF_ALLOW_LOCAL_MEDIA_URLS,
     CONF_ALLOW_NON_ADMIN_MANAGEMENT,
     CONF_ENABLE_EXPERIMENTAL,
     CONF_INSTANCE_ID,
@@ -405,6 +406,9 @@ class HomeiiFlowOptionsFlow(config_entries.OptionsFlow):
             updated[CONF_ALLOW_NON_ADMIN_MANAGEMENT] = bool(
                 user_input.get(CONF_ALLOW_NON_ADMIN_MANAGEMENT, False)
             )
+            updated[CONF_ALLOW_LOCAL_MEDIA_URLS] = bool(
+                user_input.get(CONF_ALLOW_LOCAL_MEDIA_URLS, False)
+            )
             if effective_token:
                 updated[CONF_MUSIC_ASSISTANT_TOKEN] = effective_token
             if not errors:
@@ -446,6 +450,12 @@ class HomeiiFlowOptionsFlow(config_entries.OptionsFlow):
                         CONF_ALLOW_NON_ADMIN_MANAGEMENT,
                         default=bool(
                             self._config_entry.options.get(CONF_ALLOW_NON_ADMIN_MANAGEMENT, False)
+                        ),
+                    ): bool,
+                    vol.Optional(
+                        CONF_ALLOW_LOCAL_MEDIA_URLS,
+                        default=bool(
+                            self._config_entry.options.get(CONF_ALLOW_LOCAL_MEDIA_URLS, False)
                         ),
                     ): bool,
                 }

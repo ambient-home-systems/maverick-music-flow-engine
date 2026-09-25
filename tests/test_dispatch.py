@@ -1,6 +1,7 @@
 """Regression checks for actual announcement and transfer methods."""
 import ast
 import asyncio
+import runpy
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -10,11 +11,14 @@ source = Path(__file__).resolve().parents[1] / "custom_components/maverick_music
 tree = ast.parse(source.read_text(encoding="utf-8"))
 cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "HomeiiFlowRuntime")
 cls.decorator_list = []
-cls.body = [n for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in {"async_send_announcement", "async_transfer_queue", "async_player_command", "async_apply_group", "async_execute_timer", "_async_execute_timer_once", "async_queue_action"}]
+cls.body = [n for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in {"_async_validate_media_reference", "local_media_urls_allowed", "async_send_announcement", "async_transfer_queue", "async_player_command", "async_apply_group", "async_execute_timer", "_async_execute_timer_once", "async_queue_action"}]
 module = ast.Module(body=[ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0), cls], type_ignores=[])
-namespace = {"asyncio": asyncio,"tts": SimpleNamespace(generate_media_source_id=Mock(return_value="media-source://tts/test")), "_safe_list": lambda value: value if isinstance(value, list) else [], "_utc_iso": lambda: "now", "EVENT_ENGINE_GROUP_APPLY": "group", "SIGNAL_ENGINE_UPDATED": "update", "async_dispatcher_send": lambda *args: None, "DEFAULT_PROFILE_ID": "default", "HomeiiFlowServiceUnavailable": RuntimeError, "_clean_string": lambda v: str(v or "").strip(), "_dict_first": lambda d, *ks: next((d[k] for k in ks if d.get(k)), None)}
+async def _public_resolver(_host, _port):
+    return ["93.184.215.14"]
+_policy = runpy.run_path(str(source.parent / "media_url_policy.py"))
+_media_policy = {"async_validate_media_reference": lambda reference, **kwargs: _policy["async_validate_media_reference"](reference, resolve=_public_resolver, **kwargs)}
+namespace = {"asyncio": asyncio,"tts": SimpleNamespace(generate_media_source_id=Mock(return_value="media-source://tts/test")), "_safe_list": lambda value: value if isinstance(value, list) else [], "_utc_iso": lambda: "now", "EVENT_ENGINE_GROUP_APPLY": "group", "SIGNAL_ENGINE_UPDATED": "update", "async_dispatcher_send": lambda *args: None, "DEFAULT_PROFILE_ID": "default", "HomeiiFlowServiceUnavailable": RuntimeError, "_clean_string": lambda v: str(v or "").strip(), "_dict_first": lambda d, *ks: next((d[k] for k in ks if d.get(k)), None), "home_assistant_base_url": lambda _hass: "", "async_validate_media_reference": _media_policy["async_validate_media_reference"]}
 exec(compile(ast.fix_missing_locations(module), str(source), "exec"), namespace)
-import runpy
 namespace["build_queue_switch"] = runpy.run_path(str(source.parent / "queue_controls.py"))["build_queue_switch"]
 namespace["build_playback_speed"] = runpy.run_path(str(source.parent / "queue_controls.py"))["build_playback_speed"]
 Runtime = namespace["HomeiiFlowRuntime"]
@@ -53,6 +57,8 @@ class DispatchTests(unittest.IsolatedAsyncioTestCase):
         r.async_record_announcement = AsyncMock(return_value={"announcement": {}})
         r.async_record_activity = AsyncMock()
         r.async_call_service_response = AsyncMock()
+        r.music_assistant_base_urls = lambda: []
+        r._matching_entry = lambda _instance_id=None: None
         return r
 
     async def test_partial_is_not_full_success(self):

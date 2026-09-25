@@ -16,6 +16,7 @@ CONF_MUSIC_ASSISTANT_URL = "music_assistant_url"
 CONF_MUSIC_ASSISTANT_EXTERNAL_URL = "music_assistant_external_url"
 CONF_MUSIC_ASSISTANT_TOKEN = "music_assistant_token"
 CONF_ALLOW_NON_ADMIN_MANAGEMENT = "allow_non_admin_management"
+CONF_ALLOW_LOCAL_MEDIA_URLS = "allow_local_media_urls"
 
 DEFAULT_INSTANCE_ID = "default"
 DEFAULT_PROFILE_ID = "default"

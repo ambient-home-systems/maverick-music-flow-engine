@@ -47,9 +47,11 @@ from .command_bridge import (
     music_assistant_command_allowed,
     strip_internal_keys,
 )
+from .media_url_policy import MediaUrlNotAllowed
 from .sendspin_bridge import HomeiiFlowSendspinView
 
 from .const import (
+    CONF_ALLOW_LOCAL_MEDIA_URLS,
     CONF_ALLOW_NON_ADMIN_MANAGEMENT,
     CONF_ENABLE_EXPERIMENTAL,
     CONF_INSTANCE_ID,
@@ -552,6 +554,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     profile_id = str(entry.options.get(CONF_PROFILE_ID) or entry.data.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID)
     enable_experimental = bool(entry.options.get(CONF_ENABLE_EXPERIMENTAL, False))
     allow_non_admin_management = bool(entry.options.get(CONF_ALLOW_NON_ADMIN_MANAGEMENT, False))
+    allow_local_media_urls = bool(entry.options.get(CONF_ALLOW_LOCAL_MEDIA_URLS, False))
     music_assistant_url = str(
         entry.options.get(CONF_MUSIC_ASSISTANT_URL)
         or entry.data.get(CONF_MUSIC_ASSISTANT_URL)
@@ -577,6 +580,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         music_assistant_external_url=music_assistant_external_url,
         music_assistant_token=music_assistant_token,
         allow_non_admin_management=allow_non_admin_management,
+        allow_local_media_urls=allow_local_media_urls,
     )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_entry))
@@ -743,11 +747,17 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
     async def announce(call: ServiceCall) -> None:
         runtime = async_get_runtime(hass)
-        await runtime.async_send_announcement(dict(call.data))
+        try:
+            await runtime.async_send_announcement(dict(call.data))
+        except MediaUrlNotAllowed as error:
+            raise ServiceValidationError(str(error)) from error
 
     async def play_media(call: ServiceCall) -> None:
         runtime = async_get_runtime(hass)
-        await runtime.async_play_media(dict(call.data))
+        try:
+            await runtime.async_play_media(dict(call.data))
+        except MediaUrlNotAllowed as error:
+            raise ServiceValidationError(str(error)) from error
 
     async def set_queue_settings(call: ServiceCall) -> None:
         await async_get_runtime(hass).async_queue_settings({"values": dict(call.data)})

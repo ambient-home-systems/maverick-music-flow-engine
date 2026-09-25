@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .artwork_lighting import ArtworkLighting
-from .artwork_proxy import normalize_image_type
+from .artwork_proxy import home_assistant_base_url, normalize_image_type
 from .queue_settings import async_queue_settings
 from .player_timing import playback_position_pair
 from .queue_controls import build_queue_switch, build_playback_speed
@@ -58,6 +58,7 @@ from .const import (
 )
 from .exceptions import HomeiiFlowServiceUnavailable
 from .ma_client import MusicAssistantEventClient
+from .media_url_policy import async_validate_media_reference, command_media_references
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -545,6 +546,7 @@ class EngineEntry:
     title: str = "HOMEii Flow Engine"
     enable_experimental: bool = False
     allow_non_admin_management: bool = False
+    allow_local_media_urls: bool = False
     music_assistant_url: str = ""
     music_assistant_external_url: str = ""
     music_assistant_token: str = field(default="", repr=False)
@@ -559,6 +561,7 @@ class EngineEntry:
             "title": self.title,
             "enable_experimental": self.enable_experimental,
             "allow_non_admin_management": self.allow_non_admin_management,
+            "allow_local_media_urls": self.allow_local_media_urls,
             "music_assistant_url_configured": bool(self.music_assistant_url),
             "music_assistant_external_url_configured": bool(self.music_assistant_external_url),
             "music_assistant_token_configured": bool(self.music_assistant_token),
@@ -1981,6 +1984,7 @@ class HomeiiFlowRuntime:
         music_assistant_external_url: str = "",
         music_assistant_token: str = "",
         allow_non_admin_management: bool = False,
+        allow_local_media_urls: bool = False,
     ) -> None:
         """Register a loaded config entry."""
         self._entries[entry_id] = EngineEntry(
@@ -1990,6 +1994,7 @@ class HomeiiFlowRuntime:
             title=title or "HOMEii Flow Engine",
             enable_experimental=enable_experimental,
             allow_non_admin_management=bool(allow_non_admin_management),
+            allow_local_media_urls=bool(allow_local_media_urls),
             music_assistant_url=_normalized_http_url(music_assistant_url),
             music_assistant_external_url=_normalized_http_url(music_assistant_external_url),
             music_assistant_token=_clean_string(music_assistant_token),
@@ -2134,6 +2139,19 @@ class HomeiiFlowRuntime:
         """Return whether non-admin users may manage schedules, timers and volume rules."""
         entry = self._matching_entry(instance_id)
         return bool(entry and entry.allow_non_admin_management)
+
+    def local_media_urls_allowed(self, instance_id: str | None = None) -> bool:
+        """Return whether URL media may point at private LAN addresses."""
+        entry = self._matching_entry(instance_id)
+        return bool(entry and entry.allow_local_media_urls)
+
+    async def _async_validate_media_reference(self, reference: Any, instance_id: Any = None) -> None:
+        """Refuse URL media that would make Music Assistant fetch a local address."""
+        await async_validate_media_reference(
+            reference,
+            trusted_bases=[*self.music_assistant_base_urls(), home_assistant_base_url(self.hass)],
+            allow_local=self.local_media_urls_allowed(instance_id),
+        )
 
     def control_entity_id(self, target: str) -> str:
         """Return the media_player entity whose HA permissions govern a player target.
@@ -3342,6 +3360,7 @@ class HomeiiFlowRuntime:
         radio_mode = bool(payload.get("radio_mode"))
         if not player or not media_id:
             raise ValueError("player and media_id are required")
+        await self._async_validate_media_reference(media_id, payload.get("instance_id"))
         verify_playback = bool(payload.get("verify_playback")) and enqueue in {"play", "replace", "shuffle"}
         readiness = self._player_readiness(player)
         if verify_playback and not readiness.get("ready"):
@@ -4704,6 +4723,8 @@ class HomeiiFlowRuntime:
             args = {}
         if not isinstance(args, dict):
             raise ValueError("args must be a dictionary")
+        for reference in command_media_references(command, args):
+            await self._async_validate_media_reference(reference, payload.get("instance_id"))
         cacheable = self._music_assistant_command_cacheable(command)
         cache_key = self._music_assistant_command_cache_key(command, args) if cacheable else ""
         if cacheable and not cache_worker:
@@ -6188,6 +6209,8 @@ class HomeiiFlowRuntime:
         language = str(payload.get("language") or "").strip()
         tts_entity = str(payload.get("tts_entity") or payload.get("announcement_tts_entity") or "").strip()
         is_url = message.lower().startswith(("http://", "https://"))
+        if is_url:
+            await self._async_validate_media_reference(message, payload.get("instance_id"))
         results: list[dict[str, Any]] = []
 
         for player in players:
