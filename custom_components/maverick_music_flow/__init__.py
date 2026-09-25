@@ -6,11 +6,10 @@ import hashlib
 import logging
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import voluptuous as vol
 
-from aiohttp import ClientError, ClientTimeout, web
+from aiohttp import web
 
 from homeassistant.components.http import HomeAssistantView, StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
@@ -20,6 +19,14 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.service import async_register_admin_service
 
+from .artwork_proxy import (
+    ARTWORK_SECURITY_HEADERS,
+    ArtworkFetcher,
+    ArtworkPayload,
+    artwork_fetch_urls,
+    async_get_strict_artwork_session,
+    home_assistant_base_url,
+)
 from .sendspin_bridge import HomeiiFlowSendspinView
 
 from .const import (
@@ -286,7 +293,13 @@ def _collect_artwork_candidates(value: Any, candidates: list[str], *, depth: int
 
 
 class HomeiiFlowArtworkProxyView(HomeAssistantView):
-    """Proxy current player artwork through Home Assistant for dashboard agents."""
+    """Proxy current player artwork through Home Assistant for dashboard agents.
+
+    Every upstream fetch goes through the hardened helper in ``artwork_proxy``: only
+    validated raster images are served, private addresses are refused for anything but
+    the configured Music Assistant and Home Assistant URLs, and fetch URLs are never built
+    from the incoming request.
+    """
 
     url = "/api/maverick_music_flow/artwork/{entity_id}"
     name = "api:maverick_music_flow:artwork"
@@ -295,6 +308,30 @@ class HomeiiFlowArtworkProxyView(HomeAssistantView):
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the artwork proxy."""
         self.hass = hass
+
+    def _artwork_fetcher(self, runtime: HomeiiFlowRuntime) -> tuple[ArtworkFetcher, list[str], str]:
+        """Return the hardened fetcher plus the base URLs fetch URLs may be built from."""
+        ma_base_urls = runtime.music_assistant_base_urls()
+        ha_base_url = home_assistant_base_url(self.hass)
+        fetcher = ArtworkFetcher(
+            trusted_session=async_get_clientsession(self.hass),
+            strict_session=async_get_strict_artwork_session(self.hass),
+            ma_base_urls=ma_base_urls,
+            ma_tokens=runtime.music_assistant_tokens(),
+            ha_base_url=ha_base_url,
+        )
+        return fetcher, ma_base_urls, ha_base_url
+
+    @staticmethod
+    async def _async_fetch_source(
+        fetcher: ArtworkFetcher, source: str, ma_base_urls: list[str], ha_base_url: str
+    ) -> ArtworkPayload | None:
+        """Return the first validated image among the candidate URLs for a source."""
+        for url in artwork_fetch_urls(source, ma_base_urls, ha_base_url):
+            payload = await fetcher.async_fetch(url)
+            if payload is not None:
+                return payload
+        return None
 
     async def get(self, request: web.Request, entity_id: str) -> web.Response:
         """Return current artwork for a media player entity."""
@@ -330,86 +367,38 @@ class HomeiiFlowArtworkProxyView(HomeAssistantView):
             _collect_artwork_candidates(queue_response.get("data"), candidates)
         except Exception:  # noqa: BLE001 - artwork proxy must remain best effort
             pass
-        unique_candidates = [item for index, item in enumerate(candidates) if item and item not in candidates[:index]]
-        session = async_get_clientsession(self.hass)
-        timeout = ClientTimeout(total=8)
-        ma_base_urls = runtime.music_assistant_base_urls()
-        ma_tokens = runtime.music_assistant_tokens()
-        for source in unique_candidates:
-            for url in self._absolute_artwork_urls(request, source, ma_base_urls):
-                try:
-                    headers = {"Accept": "image/*,*/*;q=0.8"}
-                    if ma_tokens and any(
-                        url.startswith(f"{base.rstrip('/')}/") for base in ma_base_urls
-                    ):
-                        headers["Authorization"] = f"Bearer {ma_tokens[0]}"
-                    async with session.get(url, timeout=timeout, headers=headers) as response:
-                        if response.status >= 400:
-                            continue
-                        body = await response.read()
-                        if not body:
-                            continue
-                        content_type = response.headers.get("Content-Type") or "image/jpeg"
-                        return web.Response(
-                            body=body,
-                            content_type=content_type.split(";", 1)[0],
-                            headers={
-                                "Cache-Control": "no-store, max-age=0",
-                                "X-HOMEii-Flow-Artwork-Source": "proxy",
-                            },
-                        )
-                except (ClientError, TimeoutError, ValueError):
-                    continue
+        sources: list[str] = []
+        for candidate in candidates:
+            source = candidate
+            if candidate.startswith("/api/maverick_music_flow/artwork/item/"):
+                # Resolve the Engine's own opaque URLs locally instead of fetching
+                # them back through Home Assistant.
+                source = runtime.resolve_artwork_source(candidate.rsplit("/", 1)[-1].split("?", 1)[0])
+            if source and source not in sources:
+                sources.append(source)
+        fetcher, ma_base_urls, ha_base_url = self._artwork_fetcher(runtime)
+        for source in sources:
+            payload = await self._async_fetch_source(fetcher, source, ma_base_urls, ha_base_url)
+            if payload is None:
+                continue
+            return web.Response(
+                body=payload.body,
+                content_type=payload.content_type,
+                headers={
+                    "Cache-Control": "no-store, max-age=0",
+                    "X-HOMEii-Flow-Artwork-Source": "proxy",
+                    **ARTWORK_SECURITY_HEADERS,
+                },
+            )
         raise web.HTTPNotFound(text="artwork could not be loaded")
-
-    @staticmethod
-    def _absolute_artwork_urls(request: web.Request, source: str, ma_base_urls: list[str]) -> list[str]:
-        """Return absolute artwork URLs that Home Assistant can fetch."""
-        if source.startswith("data:") or source.startswith("blob:"):
-            return []
-        if source.startswith("//"):
-            return [f"{request.scheme}:{source}"]
-        if source.startswith("http://") or source.startswith("https://"):
-            candidates = [source]
-            parsed = urlparse(source)
-            path_index = parsed.path.find("/imageproxy")
-            imageproxy_path = parsed.path[path_index:] if path_index >= 0 else ""
-            if imageproxy_path:
-                suffix = f"{imageproxy_path}{f'?{parsed.query}' if parsed.query else ''}"
-                for base_url in ma_base_urls:
-                    candidates.append(f"{base_url.rstrip('/')}{suffix}")
-            if parsed.path.rstrip("/").endswith("/imageproxy"):
-                query = parse_qs(parsed.query)
-                provider = str((query.get("provider") or ["builtin"])[0] or "builtin")
-                raw_path = str((query.get("path") or [""])[0] or "")
-                image_path = unquote(unquote(raw_path))
-                if image_path:
-                    image_id = hashlib.sha256(
-                        f"{provider}/{image_path}".encode("utf-8"),
-                        usedforsecurity=False,
-                    ).hexdigest()
-                    candidates.append(
-                        f"{parsed.scheme}://{parsed.netloc}/imageproxy/{image_id}?size=512"
-                    )
-                    for base_url in ma_base_urls:
-                        candidates.append(f"{base_url.rstrip('/')}/imageproxy/{image_id}?size=512")
-            return [candidate for index, candidate in enumerate(candidates) if candidate not in candidates[:index]]
-        candidates: list[str] = []
-        if source.startswith("/imageproxy") or source.startswith("imageproxy"):
-            path = source if source.startswith("/") else f"/{source}"
-            for base_url in ma_base_urls:
-                candidates.append(f"{base_url.rstrip('/')}{path}")
-        if source.startswith("/"):
-            candidates.append(f"{request.scheme}://{request.host}{source}")
-        else:
-            for base_url in ma_base_urls:
-                candidates.append(f"{base_url.rstrip('/')}/imageproxy?path={quote(source)}&size=512")
-            candidates.append(f"{request.scheme}://{request.host}/{quote(source.lstrip('/'))}")
-        return [candidate for index, candidate in enumerate(candidates) if candidate and candidate not in candidates[:index]]
 
 
 class HomeiiFlowItemArtworkProxyView(HomeiiFlowArtworkProxyView):
-    """Proxy registered queue/library artwork through Home Assistant."""
+    """Proxy registered queue/library artwork through Home Assistant.
+
+    This route needs no login so plain ``<img>`` tags work; the opaque token is the only
+    credential, which is why tokens are keyed with a per-installation secret.
+    """
 
     url = "/api/maverick_music_flow/artwork/item/{token}"
     name = "api:maverick_music_flow:item_artwork"
@@ -428,14 +417,11 @@ class HomeiiFlowItemArtworkProxyView(HomeiiFlowArtworkProxyView):
             "Cache-Control": "private, max-age=1800, stale-while-revalidate=86400",
             "ETag": etag,
             "X-HOMEii-Flow-Artwork-Source": source_label,
+            **ARTWORK_SECURITY_HEADERS,
         }
         if request.headers.get("If-None-Match", "").strip() == etag:
             return web.Response(status=304, headers=headers)
-        return web.Response(
-            body=body,
-            content_type=str(content_type or "image/jpeg").split(";", 1)[0],
-            headers=headers,
-        )
+        return web.Response(body=body, content_type=content_type, headers=headers)
 
     async def get(self, request: web.Request, token: str) -> web.Response:
         """Return artwork for an opaque Engine token."""
@@ -447,29 +433,12 @@ class HomeiiFlowItemArtworkProxyView(HomeiiFlowArtworkProxyView):
         if cached:
             body, content_type = cached
             return self._artwork_response(request, body, content_type, "memory-cache")
-        ma_base_urls = runtime.music_assistant_base_urls()
-        ma_tokens = runtime.music_assistant_tokens()
-        session = async_get_clientsession(self.hass)
-        timeout = ClientTimeout(total=8)
-        for url in self._absolute_artwork_urls(request, source, ma_base_urls):
-            try:
-                headers = {"Accept": "image/*,*/*;q=0.8"}
-                if ma_tokens and any(
-                    url.startswith(f"{base.rstrip('/')}/") for base in ma_base_urls
-                ):
-                    headers["Authorization"] = f"Bearer {ma_tokens[0]}"
-                async with session.get(url, timeout=timeout, headers=headers) as response:
-                    if response.status >= 400:
-                        continue
-                    body = await response.read()
-                    if not body:
-                        continue
-                    content_type = response.headers.get("Content-Type") or "image/jpeg"
-                    runtime.cache_artwork_content(source, body, content_type)
-                    return self._artwork_response(request, body, content_type, "item-proxy")
-            except (ClientError, TimeoutError, ValueError):
-                continue
-        raise web.HTTPNotFound(text="artwork could not be loaded")
+        fetcher, ma_base_urls, ha_base_url = self._artwork_fetcher(runtime)
+        payload = await self._async_fetch_source(fetcher, source, ma_base_urls, ha_base_url)
+        if payload is None:
+            raise web.HTTPNotFound(text="artwork could not be loaded")
+        runtime.cache_artwork_content(source, payload.body, payload.content_type)
+        return self._artwork_response(request, payload.body, payload.content_type, "item-proxy")
 
 
 class HomeiiFlowCommandView(HomeAssistantView):

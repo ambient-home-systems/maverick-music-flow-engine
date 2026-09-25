@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .artwork_lighting import ArtworkLighting
+from .artwork_proxy import normalize_image_type
 from .queue_settings import async_queue_settings
 from .player_timing import playback_position_pair
 from .queue_controls import build_queue_switch, build_playback_speed
@@ -11,6 +12,7 @@ import asyncio
 import copy
 import hashlib
 import logging
+import secrets
 import time
 
 from collections.abc import Callable
@@ -57,6 +59,10 @@ from .exceptions import HomeiiFlowServiceUnavailable
 from .ma_client import MusicAssistantEventClient
 
 _LOGGER = logging.getLogger(__name__)
+
+# Opaque artwork tokens slide on every use. The Engine's own detail cache serves stale
+# responses for up to 24 hours, so tokens outlive the longest cached response.
+ARTWORK_TOKEN_LIFETIME = 48 * 60 * 60
 
 
 def _utc_iso() -> str:
@@ -992,6 +998,8 @@ class HomeiiFlowRuntime:
         self._artwork_sources: dict[str, tuple[str, float]] = {}
         self._artwork_source_tokens: dict[str, str] = {}
         self._artwork_content_cache: dict[str, tuple[float, bytes, str]] = {}
+        # Replaced by the persisted secret in async_load; never left unkeyed.
+        self._artwork_token_secret: bytes = secrets.token_bytes(32)
         self._library_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
         self._library_inflight: dict[tuple[Any, ...], asyncio.Task[dict[str, Any]]] = {}
         self._queue_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
@@ -1111,8 +1119,26 @@ class HomeiiFlowRuntime:
                 self._queue_cache.pop(oldest_key, None)
         return result
 
+    def _restore_artwork_token_secret(self, value: Any) -> bool:
+        """Adopt a persisted artwork token secret and return whether it was valid."""
+        clean = str(value or "").strip().lower()
+        if len(clean) != 64 or any(char not in "0123456789abcdef" for char in clean):
+            return False
+        secret = bytes.fromhex(clean)
+        if secret != self._artwork_token_secret:
+            self._artwork_token_secret = secret
+            self._artwork_sources.clear()
+            self._artwork_source_tokens.clear()
+        self._storage["artwork_token_secret"] = clean
+        return True
+
     def register_artwork_source(self, source: Any) -> str:
-        """Register an artwork source and return an opaque, HA-local URL."""
+        """Register an artwork source and return an opaque, HA-local URL.
+
+        Tokens are deterministic for a source, so URLs stay stable across responses, but
+        they are keyed with a per-installation secret so nobody can derive the token for
+        a source URL they know.
+        """
         clean = str(source or "").strip()
         if not clean or clean.startswith(("data:", "blob:")):
             return ""
@@ -1120,9 +1146,11 @@ class HomeiiFlowRuntime:
             return clean
         token = self._artwork_source_tokens.get(clean, "")
         if not token or token not in self._artwork_sources:
-            token = hashlib.blake2s(clean.encode("utf-8"), digest_size=18).hexdigest()
+            token = hashlib.blake2s(
+                clean.encode("utf-8"), key=self._artwork_token_secret, digest_size=18
+            ).hexdigest()
             self._artwork_source_tokens[clean] = token
-        self._artwork_sources[token] = (clean, time.monotonic() + 7 * 24 * 60 * 60)
+        self._artwork_sources[token] = (clean, time.monotonic() + ARTWORK_TOKEN_LIFETIME)
         if len(self._artwork_sources) > 5000:
             now = time.monotonic()
             expired = [key for key, (_, expires_at) in self._artwork_sources.items() if expires_at <= now]
@@ -1149,7 +1177,7 @@ class HomeiiFlowRuntime:
             if self._artwork_source_tokens.get(source) == clean_token:
                 self._artwork_source_tokens.pop(source, None)
             return ""
-        self._artwork_sources[clean_token] = (source, time.monotonic() + 7 * 24 * 60 * 60)
+        self._artwork_sources[clean_token] = (source, time.monotonic() + ARTWORK_TOKEN_LIFETIME)
         return source
 
     def cached_artwork_content(self, source: str) -> tuple[bytes, str] | None:
@@ -1165,16 +1193,17 @@ class HomeiiFlowRuntime:
         return body, content_type
 
     def cache_artwork_content(self, source: str, body: bytes, content_type: str) -> None:
-        """Keep a bounded in-memory cache for queue and library artwork."""
+        """Keep a bounded in-memory cache for queue and library artwork.
+
+        Only content that passed the artwork proxy's validation is cached: the image type
+        must be one the proxy is allowed to serve.
+        """
         clean = str(source or "").strip()
-        if not clean or not body or len(body) > 5 * 1024 * 1024:
+        clean_type = normalize_image_type(content_type)
+        if not clean or not clean_type or not body or len(body) > 5 * 1024 * 1024:
             return
         now = time.monotonic()
-        self._artwork_content_cache[clean] = (
-            now + 30 * 60,
-            body,
-            str(content_type or "image/jpeg").split(";", 1)[0],
-        )
+        self._artwork_content_cache[clean] = (now + 30 * 60, body, clean_type)
         expired = [
             key
             for key, (expires_at, _, _) in self._artwork_content_cache.items()
@@ -1806,6 +1835,12 @@ class HomeiiFlowRuntime:
                     "artwork_lighting": stored.get("artwork_lighting") if isinstance(stored.get("artwork_lighting"), dict) else {},
                 }
             )
+        stored_secret = stored.get("artwork_token_secret") if isinstance(stored, dict) else None
+        if not self._restore_artwork_token_secret(stored_secret):
+            # First load (or a corrupt value): persist the generated secret so artwork
+            # URLs stay stable across restarts.
+            self._storage["artwork_token_secret"] = self._artwork_token_secret.hex()
+            await self._store.async_save(self._storage)
         await self._async_load_media_cache()
         self.artwork_lighting.start()
 
