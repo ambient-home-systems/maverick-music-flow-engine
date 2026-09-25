@@ -82,13 +82,15 @@
           "music_assistant_url": "Music Assistant server URL",
           "music_assistant_external_url": "Music Assistant external HTTPS URL",
           "music_assistant_token": "Replace Music Assistant API token",
-          "allow_non_admin_management": "Allow non-admin users to manage schedules, timers and volume rules"
+          "allow_non_admin_management": "Allow non-admin users to manage schedules, timers and volume rules",
+          "allow_local_media_urls": "Allow announcements and playback from local network URLs"
         },
         "data_description": {
           "music_assistant_external_url": "Optional HTTPS fallback. Do not use the Home Assistant ingress page.",
           "music_assistant_token": "Leave blank to keep the currently stored token.",
           "profile_id": "Default namespace for Engine policies and stored schedules. Leave default for normal use. It is not your Music Assistant login/profile. Cards using a custom Engine profile must use the matching profile ID.",
-          "allow_non_admin_management": "Off by default: only Home Assistant administrators can create, change, run or delete schedules, timers and volume rules. Turn this on for households whose dashboards run as non-admin users. Those users still need permission to control the target player. Other configuration (screensaver, artwork lighting, interface defaults, shared queue preferences) stays admin-only."
+          "allow_non_admin_management": "Off by default: only Home Assistant administrators can create, change, run or delete schedules, timers and volume rules. Turn this on for households whose dashboards run as non-admin users. Those users still need permission to control the target player. Other configuration (screensaver, artwork lighting, interface defaults, shared queue preferences) stays admin-only.",
+          "allow_local_media_urls": "Off by default: URLs passed to announcements and playback must point to public internet addresses, or to the Music Assistant or Home Assistant URL. Turn this on to also allow media servers on your private network (for example a NAS at 192.168.x.x). Loopback and link-local addresses are always refused."
         }
       },
       "add_volume_rule": {

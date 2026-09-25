@@ -7,6 +7,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import copy
+import runpy
 import time
 from collections import defaultdict
 from datetime import UTC, datetime
@@ -22,7 +23,7 @@ if not SOURCE.exists():
     SOURCE = Path(__file__).with_name("runtime.py")
 tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
 helpers = {"_dict_first", "_clean_string", "_safe_list", "_maybe_number", "_first_non_empty", "_safe_id_part", "_utc_iso", "_playback_snapshot_changed"}
-methods = {"cached_stats", "stats", "_ha_entity_for_ma_player", "_normalize_ma_player", "_player_readiness", "async_players_snapshot", "async_play_media", "_try_music_queue_command_bridge", "normalize_queue_response", "_queue_payload_root", "_queue_payload_items", "_queue_payload_expected_count", "_resolve_ma_player_id", "is_music_assistant_player"}
+methods = {"_async_validate_media_reference", "local_media_urls_allowed", "cached_stats", "stats", "_ha_entity_for_ma_player", "_normalize_ma_player", "_player_readiness", "async_players_snapshot", "async_play_media", "_try_music_queue_command_bridge", "normalize_queue_response", "_queue_payload_root", "_queue_payload_items", "_queue_payload_expected_count", "_resolve_ma_player_id", "is_music_assistant_player"}
 methods.update({"_media_type_command_roots", "_music_library_command_attempts", "_try_music_library_command_bridge", "_library_cache_entry", "_library_response", "async_get_library"})
 nodes = [ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0)]
 nodes.extend(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in helpers)
@@ -32,7 +33,9 @@ runtime_class.body = [node for node in runtime_class.body if isinstance(node, (a
 nodes.append(runtime_class)
 registry = SimpleNamespace(entities={}, async_get=lambda _: None)
 namespace = {"time": time, "DEFAULT_PROFILE_ID": "default", "asyncio": asyncio, "copy": copy, "Any": Any, "datetime": datetime, "UTC": UTC,
-             "HomeiiFlowServiceUnavailable": RuntimeError, "er": SimpleNamespace(async_get=lambda _: registry)}
+             "HomeiiFlowServiceUnavailable": RuntimeError, "er": SimpleNamespace(async_get=lambda _: registry),
+             "home_assistant_base_url": lambda _hass: "",
+             "async_validate_media_reference": runpy.run_path(str(ROOT / "custom_components/maverick_music_flow/media_url_policy.py"))["async_validate_media_reference"]}
 exec(compile(ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[])), str(SOURCE), "exec"), namespace)
 exec((ROOT / "custom_components/maverick_music_flow/player_timing.py").read_text(encoding="utf-8"), namespace)
 Runtime = namespace["HomeiiFlowRuntime"]
@@ -46,6 +49,8 @@ class ReliabilityTests(unittest.IsolatedAsyncioTestCase):
         self.runtime._ma_players_by_entity = {}
         self.runtime._ma_players_by_id = {}
         self.runtime._ma_http_health = {}
+        self.runtime.music_assistant_base_urls = lambda: []
+        self.runtime._matching_entry = lambda _instance_id=None: None
         self.runtime._snapshot_revisions = {"queue": 1}
         self.runtime.media_players_snapshot = lambda **_: []
         self.runtime.normalize_media_item = lambda item, **_: dict(item) if isinstance(item, dict) else None

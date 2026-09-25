@@ -311,7 +311,7 @@ announce:
         text:
     message:
       name: Message
-      description: Announcement text.
+      description: Announcement text, or an http(s) URL of an audio file. URLs must point to a public address, the Music Assistant URL or this Home Assistant URL unless local network URLs are allowed in the Engine options.
       required: true
       selector:
         text:
@@ -367,7 +367,7 @@ play_media:
           domain: media_player
     media_id:
       name: Media ID
-      description: Music Assistant URI or media id.
+      description: Music Assistant URI or media id. http(s) URLs must point to a public address, the Music Assistant URL or this Home Assistant URL unless local network URLs are allowed in the Engine options.
       required: true
       selector:
         text:

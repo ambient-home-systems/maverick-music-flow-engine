@@ -13,6 +13,7 @@ import copy
 import hashlib
 import importlib
 import re
+import runpy
 import sys
 import time
 import types
@@ -262,6 +263,9 @@ class InternalKeyTests(TestCase):
         self.assertEqual(ns["_command_payload"](msg), {"command": "players/all", "args": {}})
 
 
+MEDIA_POLICY = runpy.run_path(str(COMPONENT / "media_url_policy.py"))
+
+
 def load_runtime_command_method():
     source = COMPONENT / "runtime.py"
     tree = ast.parse(source.read_text(encoding="utf-8"))
@@ -274,6 +278,8 @@ def load_runtime_command_method():
         "_music_assistant_command_cacheable",
         "_music_assistant_command_cache_key",
         "_finish_media_command_refresh",
+        "_async_validate_media_reference",
+        "local_media_urls_allowed",
     }
     cls.body = [
         n
@@ -287,6 +293,9 @@ def load_runtime_command_method():
         "hashlib": hashlib,
         "time": time,
         "music_assistant_command_allowed": allowed,
+        "command_media_references": MEDIA_POLICY["command_media_references"],
+        "async_validate_media_reference": MEDIA_POLICY["async_validate_media_reference"],
+        "home_assistant_base_url": lambda _hass: "",
         "HomeiiFlowServiceUnavailable": RuntimeError,
         "_utc_iso": lambda: "now",
     }
@@ -315,6 +324,8 @@ class RuntimeCommandTests(IsolatedAsyncioTestCase):
             async_command=AsyncMock(return_value={"name": "fresh"}),
         )
         runtime._ma_http_health = {}
+        runtime.music_assistant_base_urls = lambda: []
+        runtime._matching_entry = lambda _instance_id=None: None
         runtime._media_cache_metrics = defaultdict(int)
         runtime._media_command_cache = {}
         runtime._media_command_inflight = {}
