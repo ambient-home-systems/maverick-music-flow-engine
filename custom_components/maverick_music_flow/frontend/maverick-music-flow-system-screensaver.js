@@ -52,7 +52,7 @@ const HOMEII_SYSTEM_SCREENSAVER_VERSION = "0.6.1";
     <div data-homeii-backdrop-art style="position:absolute;inset:-14%;opacity:0;background-position:center;background-size:cover;filter:blur(56px) saturate(1.28) brightness(.72);transform:scale(1.12);transition:opacity .55s ease, background-image .2s ease;pointer-events:none;"></div>
     <div data-homeii-backdrop-tone style="position:absolute;inset:0;background:${DEFAULT_TONE_BACKGROUND};transition:background .7s ease;pointer-events:none;"></div>
     <div class="homeii-system-screen" style="position:relative;z-index:2;text-align:center;width:min(1080px,88vw);padding:32px;">
-      <img data-homeii-logo src="/homeii_flow/homeii-flow-logo.png?v=${HOMEII_SYSTEM_SCREENSAVER_VERSION}" alt="HOMEii Flow" style="width:clamp(160px,22vw,340px);height:auto;opacity:.76;margin:0 auto 28px;display:block;filter:drop-shadow(0 14px 32px rgba(0,0,0,.42));">
+      <img data-homeii-logo src="/maverick_music_flow/homeii-flow-logo.png?v=${HOMEII_SYSTEM_SCREENSAVER_VERSION}" alt="HOMEii Flow" style="width:clamp(160px,22vw,340px);height:auto;opacity:.76;margin:0 auto 28px;display:block;filter:drop-shadow(0 14px 32px rgba(0,0,0,.42));">
       <div data-homeii-clock style="font-weight:900;font-size:clamp(56px,12vw,168px);line-height:.9;text-shadow:0 18px 70px rgba(0,0,0,.42);"></div>
       <div data-homeii-date style="font-weight:800;font-size:clamp(14px,2vw,28px);opacity:.78;margin-top:18px;"></div>
       <div data-homeii-message style="font-weight:750;font-size:clamp(15px,1.7vw,24px);opacity:.82;margin-top:30px;"></div>
@@ -338,7 +338,7 @@ const HOMEII_SYSTEM_SCREENSAVER_VERSION = "0.6.1";
     const proxyKey = encodeURIComponent(
       text(activePlayer?.media_content_id || activePlayer?.media_title || playerAttrs.entity_picture || queueAttrs.entity_picture || entityId)
     );
-    const proxyUrl = entityId ? `/api/homeii_flow/artwork/${encodeURIComponent(entityId)}?profile_id=${profileId}&k=${proxyKey}` : "";
+    const proxyUrl = entityId ? `/api/maverick_music_flow/artwork/${encodeURIComponent(entityId)}?profile_id=${profileId}&k=${proxyKey}` : "";
     const candidates = [
       playerAttrs.entity_picture,
       playerAttrs.media_image_url,
@@ -504,7 +504,7 @@ const HOMEII_SYSTEM_SCREENSAVER_VERSION = "0.6.1";
     }
     state.hass = hass;
     try {
-      state.config = await hass.callWS({ type: "homeii_flow/screensaver/get", source: "system_screensaver_agent" });
+      state.config = await hass.callWS({ type: "maverick_music_flow/screensaver/get", source: "system_screensaver_agent" });
       state.lastRefreshAt = Date.now();
       state.lastError = "";
       state.status = state.config?.enabled ? "enabled" : "disabled";

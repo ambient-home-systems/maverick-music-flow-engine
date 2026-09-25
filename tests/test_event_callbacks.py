@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase, main
 from unittest.mock import AsyncMock
 
-SOURCE=Path(__file__).resolve().parents[1]/'custom_components/homeii_flow/runtime.py'
+SOURCE=Path(__file__).resolve().parents[1]/'custom_components/maverick_music_flow/runtime.py'
 tree=ast.parse(SOURCE.read_text(encoding='utf-8'))
 methods={'async_start_orchestration','_schedule_background_tick','_schedule_media_cache_save','_schedule_media_cache_warm','_async_warm_media_cache'}
 cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='HomeiiFlowRuntime')

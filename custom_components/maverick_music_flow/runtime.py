@@ -1116,7 +1116,7 @@ class HomeiiFlowRuntime:
         clean = str(source or "").strip()
         if not clean or clean.startswith(("data:", "blob:")):
             return ""
-        if clean.startswith("/api/homeii_flow/artwork/item/"):
+        if clean.startswith("/api/maverick_music_flow/artwork/item/"):
             return clean
         token = self._artwork_source_tokens.get(clean, "")
         if not token or token not in self._artwork_sources:
@@ -1135,7 +1135,7 @@ class HomeiiFlowRuntime:
                 oldest_source = self._artwork_sources.pop(oldest)[0]
                 if self._artwork_source_tokens.get(oldest_source) == oldest:
                     self._artwork_source_tokens.pop(oldest_source, None)
-        return f"/api/homeii_flow/artwork/item/{token}"
+        return f"/api/maverick_music_flow/artwork/item/{token}"
 
     def resolve_artwork_source(self, token: str) -> str:
         """Resolve a previously registered artwork token."""
@@ -1206,7 +1206,7 @@ class HomeiiFlowRuntime:
         clean = _clean_string(value)
         if not clean or clean.startswith(("data:", "blob:")):
             return ""
-        if clean.startswith("/api/homeii_flow/artwork/"):
+        if clean.startswith("/api/maverick_music_flow/artwork/"):
             return ""
         key_lower = key.lower()
         if len(clean) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in clean):
@@ -1483,7 +1483,7 @@ class HomeiiFlowRuntime:
         existing_artwork_url = _clean_string(value.get("homeii_artwork_url"))
         artwork_url = (
             existing_artwork_url
-            if existing_artwork_url.startswith("/api/homeii_flow/artwork/item/")
+            if existing_artwork_url.startswith("/api/maverick_music_flow/artwork/item/")
             else self._proxied_artwork_url(value)
         )
         if artwork_url:
@@ -1513,7 +1513,7 @@ class HomeiiFlowRuntime:
         artwork_sources: dict[str, str] = {}
 
         def collect(value: Any) -> None:
-            if isinstance(value, str) and value.startswith("/api/homeii_flow/artwork/item/"):
+            if isinstance(value, str) and value.startswith("/api/maverick_music_flow/artwork/item/"):
                 token = value.rsplit("/", 1)[-1]
                 source = self.resolve_artwork_source(token)
                 if source:
@@ -1542,7 +1542,7 @@ class HomeiiFlowRuntime:
         }
 
         def replace(value: Any) -> Any:
-            if isinstance(value, str) and value.startswith("/api/homeii_flow/artwork/item/"):
+            if isinstance(value, str) and value.startswith("/api/maverick_music_flow/artwork/item/"):
                 token = value.rsplit("/", 1)[-1]
                 return replacements.get(token) or ""
             if isinstance(value, list):
@@ -2110,9 +2110,9 @@ class HomeiiFlowRuntime:
             "interface_preferences": copy.deepcopy(self._storage.get("interface_preferences", {}).get(resolved_profile, {})),
             "capabilities": CAPABILITIES,
             "frontend": {
-                "system_screensaver_url": "/homeii_flow/homeii-flow-system-screensaver.js",
-                "brand_icon_url": "/homeii_flow/homeii-flow-icon.png",
-                "brand_logo_url": "/homeii_flow/homeii-flow-logo.png",
+                "system_screensaver_url": "/maverick_music_flow/maverick-music-flow-system-screensaver.js",
+                "brand_icon_url": "/maverick_music_flow/homeii-flow-icon.png",
+                "brand_logo_url": "/maverick_music_flow/homeii-flow-logo.png",
             },
             "entries": [loaded.as_dict() for loaded in self.entries],
             "loaded_entries": len(self._entries),
@@ -2846,7 +2846,7 @@ class HomeiiFlowRuntime:
         )
         return {
             "provider": "music_assistant.server_command:players/all",
-            "source_of_truth": "homeii_flow_engine",
+            "source_of_truth": "maverick_music_flow_engine",
             "players": players,
             "music_assistant_players": players,
             "music_assistant_count": len(players),
@@ -3168,7 +3168,7 @@ class HomeiiFlowRuntime:
             "show_source": str(config.get("show_source") or ""),
             "updated_at": str(config.get("updated_at") or ""),
             "music_assistant_url_configured": ma_url_configured,
-            "frontend_url": "/homeii_flow/homeii-flow-system-screensaver.js",
+            "frontend_url": "/maverick_music_flow/maverick-music-flow-system-screensaver.js",
         }
 
     async def async_set_screensaver_config(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -3553,7 +3553,7 @@ class HomeiiFlowRuntime:
                     "queue_id": clean_queue_id,
                     "queue_item_id": queue_item_id,
                     "action": action,
-                    "provider": "homeii_flow_engine.queue_noop",
+                    "provider": "maverick_music_flow_engine.queue_noop",
                     "position_shift": 0,
                     "executed_at": _utc_iso(),
                 }
@@ -4084,7 +4084,7 @@ class HomeiiFlowRuntime:
                 "media_id": "",
                 "media_type": media_type,
                 "media_name": "",
-                "provider": "homeii_flow_engine.library",
+                "provider": "maverick_music_flow_engine.library",
                 "error": str(err),
             }
         items = _safe_list(response.get("items")) if isinstance(response, dict) else []
@@ -4096,7 +4096,7 @@ class HomeiiFlowRuntime:
                 "media_id": "",
                 "media_type": media_type,
                 "media_name": "",
-                "provider": "homeii_flow_engine.library",
+                "provider": "maverick_music_flow_engine.library",
                 "candidate_count": 0,
                 "error": "Music Assistant returned no playable library items.",
             }
@@ -4114,7 +4114,7 @@ class HomeiiFlowRuntime:
             "media_id": _media_item_id(item),
             "media_type": _media_item_type(item, media_type),
             "media_name": _media_item_name(item),
-            "provider": "homeii_flow_engine.library",
+            "provider": "maverick_music_flow_engine.library",
             "candidate_count": len(playable),
             "preferred_candidate_count": len(pool),
             "score": _schedule_morning_score(item),
@@ -4741,7 +4741,7 @@ class HomeiiFlowRuntime:
             raise HomeiiFlowServiceUnavailable(error_message) from err
         output = {
             "provider": "music_assistant.authenticated_websocket",
-            "source_of_truth": "homeii_flow_engine",
+            "source_of_truth": "maverick_music_flow_engine",
             "command": command,
             "authenticated": True,
             "data": self.decorate_artwork_urls(result),
@@ -5341,7 +5341,7 @@ class HomeiiFlowRuntime:
         normalized = direct["normalized"]
         result = {
             "provider": direct["provider"],
-            "source_of_truth": "homeii_flow_engine",
+            "source_of_truth": "maverick_music_flow_engine",
             "normalized": normalized,
             "items": normalized.get("items", []),
             "coverage": {
@@ -5538,7 +5538,7 @@ class HomeiiFlowRuntime:
             raise HomeiiFlowServiceUnavailable(detail)
         result = {
             "provider": "music_assistant.server_command",
-            "source_of_truth": "homeii_flow_engine",
+            "source_of_truth": "maverick_music_flow_engine",
             "media_type": media_type,
             "offset": offset,
             "snapshot": self._snapshot_meta("library", identity=media_type, revision=fetch_revision),
@@ -5611,8 +5611,8 @@ class HomeiiFlowRuntime:
                 seen.add(key)
                 items.append({**item, "media_type": item.get("media_type") or media_type, "favorite": True})
         return {
-            "provider": "homeii_flow_engine.favorites",
-            "source_of_truth": "homeii_flow_engine",
+            "provider": "maverick_music_flow_engine.favorites",
+            "source_of_truth": "maverick_music_flow_engine",
             "items": items,
             "media_types": media_types,
             "errors": errors,
@@ -5843,7 +5843,7 @@ class HomeiiFlowRuntime:
         if not query:
             return {
                 "provider": "music_assistant.search",
-                "source_of_truth": "homeii_flow_engine",
+                "source_of_truth": "maverick_music_flow_engine",
                 "data": {},
                 "groups": {},
                 "items": [],
@@ -5881,7 +5881,7 @@ class HomeiiFlowRuntime:
         )
         result = {
             "provider": "music_assistant.server_command",
-            "source_of_truth": "homeii_flow_engine",
+            "source_of_truth": "maverick_music_flow_engine",
             "data": normalized["data"],
             "groups": normalized["groups"],
             "items": normalized["items"],
@@ -6244,8 +6244,8 @@ class HomeiiFlowRuntime:
             "players": players,
             "results": results,
             "announcement": announcement.get("announcement"),
-            "source_of_truth": "homeii_flow_engine",
-            "provider": "homeii_flow.announcement_dispatch",
+            "source_of_truth": "maverick_music_flow_engine",
+            "provider": "maverick_music_flow.announcement_dispatch",
         }
         await self.async_record_activity(
             "announcement_sent" if sent_any else "announcement_failed",

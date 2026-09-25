@@ -26,8 +26,8 @@ async def relay_frames(source, destination) -> None:
 class HomeiiFlowSendspinView(HomeAssistantView):
     """Use HA authentication, including its short-lived signed GET paths."""
 
-    url = "/api/homeii_flow/sendspin/{client_id}"
-    name = "api:homeii_flow:sendspin"
+    url = "/api/maverick_music_flow/sendspin/{client_id}"
+    name = "api:maverick_music_flow:sendspin"
     requires_auth = True
 
     def __init__(self, hass):

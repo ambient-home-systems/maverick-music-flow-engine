@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock
 
-source = Path(__file__).resolve().parents[1] / "custom_components/homeii_flow/runtime.py"
+source = Path(__file__).resolve().parents[1] / "custom_components/maverick_music_flow/runtime.py"
 tree = ast.parse(source.read_text(encoding="utf-8"))
 cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "HomeiiFlowRuntime")
 cls.decorator_list = []

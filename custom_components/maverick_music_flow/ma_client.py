@@ -94,12 +94,12 @@ class MusicAssistantEventClient:
                 if previous_task:
                     self._task = asyncio.create_task(
                         self._restart_after(previous_task, generation),
-                        name="homeii_flow_music_assistant_events_restart",
+                        name="maverick_music_flow_music_assistant_events_restart",
                     )
                 else:
                     self._task = asyncio.create_task(
                         self._run(generation),
-                        name="homeii_flow_music_assistant_events",
+                        name="maverick_music_flow_music_assistant_events",
                     )
             except RuntimeError as err:
                 self._last_error = str(err)[:300]

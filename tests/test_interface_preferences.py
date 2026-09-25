@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock
 
-source=Path(__file__).resolve().parents[1]/"custom_components/homeii_flow/interface_preferences.py"
+source=Path(__file__).resolve().parents[1]/"custom_components/maverick_music_flow/interface_preferences.py"
 tree=ast.parse(source.read_text(encoding="utf-8"))
 ns={"copy":copy,"re":re,"DEFAULT_PROFILE_ID":"default"}
 exec(compile(ast.Module(body=[node for node in tree.body if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef))],type_ignores=[]),str(source),"exec"),ns)

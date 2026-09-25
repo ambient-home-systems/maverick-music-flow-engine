@@ -188,7 +188,7 @@ class HomeiiFlowSystemScreensaverSwitch(SwitchEntity):
             manufacturer="HOMEii",
             model="Flow Engine",
             sw_version=VERSION,
-            configuration_url="https://github.com/r11a/homeii-flow-engine",
+            configuration_url="https://github.com/ambient-home-systems/maverick-music-flow-engine",
             suggested_area=instance_id if instance_id != "default" else None,
         )
 
@@ -266,7 +266,7 @@ class HomeiiFlowScheduleSwitch(SwitchEntity):
             manufacturer="HOMEii",
             model="Flow Engine",
             sw_version=VERSION,
-            configuration_url="https://github.com/r11a/homeii-flow-engine",
+            configuration_url="https://github.com/ambient-home-systems/maverick-music-flow-engine",
             suggested_area=instance_id if instance_id != "default" else None,
         )
 
@@ -491,7 +491,7 @@ class HomeiiFlowTimerSwitch(SwitchEntity):
             manufacturer="HOMEii",
             model="Flow Engine",
             sw_version=VERSION,
-            configuration_url="https://github.com/r11a/homeii-flow-engine",
+            configuration_url="https://github.com/ambient-home-systems/maverick-music-flow-engine",
             suggested_area=instance_id if instance_id != "default" else None,
         )
 
@@ -676,7 +676,7 @@ class HomeiiFlowVolumeRuleSwitch(SwitchEntity):
             manufacturer="HOMEii",
             model="Flow Engine",
             sw_version=VERSION,
-            configuration_url="https://github.com/r11a/homeii-flow-engine",
+            configuration_url="https://github.com/ambient-home-systems/maverick-music-flow-engine",
             suggested_area=instance_id if instance_id != "default" else None,
         )
 
