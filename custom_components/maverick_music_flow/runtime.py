@@ -6118,13 +6118,10 @@ class HomeiiFlowRuntime:
             return False
         return _time_window_active(now, str(rule.get("start_time") or ""), str(rule.get("end_time") or ""))
 
-    def _preferred_announcement_say_service(self, message: str = "") -> str:
+    def _preferred_announcement_say_service(self) -> str:
         """Return a usable legacy tts *_say service when tts.speak is not configured."""
         services = self.hass.services.async_services().get("tts", {})
         names = [str(name) for name in services.keys()]
-        has_hebrew = any("\u0590" <= char <= "\u05FF" for char in str(message or ""))
-        if has_hebrew and "google_translate_say" in names:
-            return "google_translate_say"
         if "google_translate_say" in names:
             return "google_translate_say"
         return next((name for name in names if name.endswith("_say")), "")
@@ -6201,7 +6198,7 @@ class HomeiiFlowRuntime:
             if sent:
                 continue
 
-            say_service = self._preferred_announcement_say_service(message)
+            say_service = self._preferred_announcement_say_service()
             if say_service:
                 service_data = {"entity_id": player, "message": message, "cache": False}
                 if language:

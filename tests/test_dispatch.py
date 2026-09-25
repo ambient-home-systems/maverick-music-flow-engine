@@ -49,7 +49,7 @@ class DispatchTests(unittest.IsolatedAsyncioTestCase):
         r = Runtime()
         r.hass = SimpleNamespace(services=SimpleNamespace(has_service=lambda *args: True))
         r._announcement_targets = lambda p: p["players"]
-        r._preferred_announcement_say_service = lambda _: "google_translate_say"
+        r._preferred_announcement_say_service = lambda: "google_translate_say"
         r.async_record_announcement = AsyncMock(return_value={"announcement": {}})
         r.async_record_activity = AsyncMock()
         r.async_call_service_response = AsyncMock()
