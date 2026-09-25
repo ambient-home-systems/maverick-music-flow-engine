@@ -60,21 +60,20 @@ class QueueSettingsTests(unittest.IsolatedAsyncioTestCase):
 
 class QueueSettingsPermissionTests(unittest.IsolatedAsyncioTestCase):
     async def test_only_admin_can_write_but_authenticated_users_can_read(self):
-        import ast
-        from unittest.mock import Mock
-        path = Path(__file__).resolve().parents[1] / "custom_components/maverick_music_flow/websocket_api.py"
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        function = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "websocket_queue_settings")
-        function.decorator_list = []
-        runtime = SimpleNamespace(async_queue_settings=AsyncMock(return_value={"entries": {}}))
-        ns = {"_runtime": lambda hass: runtime, "_command_payload": lambda msg: msg}
-        exec(compile(ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[])), str(path), "exec"), ns)
-        connection = SimpleNamespace(user=SimpleNamespace(is_admin=False), send_error=Mock(), send_result=Mock())
-        await ns["websocket_queue_settings"](None, connection, {"id": 1, "values": {"autoplay_enabled": False}})
-        runtime.async_queue_settings.assert_not_awaited()
+        # The real handler runs through _authorize; test_authorization.py provides the
+        # Home Assistant stand-ins and the fake connection/runtime.
+        try:
+            from test_authorization import FakeRuntime, FakeUser, run
+        except ImportError:  # run as tests.test_queue_settings instead of by discovery
+            from tests.test_authorization import FakeRuntime, FakeUser, run
+
+        runtime = FakeRuntime()
+        connection, runtime = await run("queue/settings", {"values": {"autoplay_enabled": False}}, FakeUser(), runtime)
+        self.assertEqual(runtime.calls, [])
         self.assertEqual(connection.send_error.call_args.args[1], "unauthorized")
-        await ns["websocket_queue_settings"](None, connection, {"id": 2})
+        connection, runtime = await run("queue/settings", {}, FakeUser())
         self.assertFalse(connection.send_result.call_args.args[1]["can_edit"])
-        connection.user.is_admin = True
-        await ns["websocket_queue_settings"](None, connection, {"id": 3, "values": {"autoplay_enabled": False}})
+        self.assertEqual(runtime.calls[0][0], "async_queue_settings")
+        connection, runtime = await run("queue/settings", {"values": {"autoplay_enabled": False}}, FakeUser(is_admin=True))
         self.assertTrue(connection.send_result.call_args.args[1]["can_edit"])
+        self.assertEqual(runtime.calls[0][1], ({"values": {"autoplay_enabled": False}},))

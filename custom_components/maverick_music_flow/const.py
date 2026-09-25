@@ -15,6 +15,7 @@ CONF_ENABLE_EXPERIMENTAL = "enable_experimental"
 CONF_MUSIC_ASSISTANT_URL = "music_assistant_url"
 CONF_MUSIC_ASSISTANT_EXTERNAL_URL = "music_assistant_external_url"
 CONF_MUSIC_ASSISTANT_TOKEN = "music_assistant_token"
+CONF_ALLOW_NON_ADMIN_MANAGEMENT = "allow_non_admin_management"
 
 DEFAULT_INSTANCE_ID = "default"
 DEFAULT_PROFILE_ID = "default"
@@ -116,4 +117,5 @@ CAPABILITIES = {
     "activity_log": True,
     "sendspin_status": True,
     "sendspin_bridge": True,
+    "user_authorization": True,
 }
