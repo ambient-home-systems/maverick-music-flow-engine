@@ -72,9 +72,9 @@ class DispatchTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_tts_language_is_top_level(self):
         r = self.runtime()
-        result = await r.async_send_announcement({"message": "test", "players": ["a"], "tts_entity": "tts.test", "language": "he", "volume": 20})
+        result = await r.async_send_announcement({"message": "test", "players": ["a"], "tts_entity": "tts.test", "language": "en", "volume": 20})
         data = r.async_call_service_response.call_args.args[2]
-        self.assertEqual(namespace["tts"].generate_media_source_id.call_args.kwargs["language"], "he")
+        self.assertEqual(namespace["tts"].generate_media_source_id.call_args.kwargs["language"], "en")
         self.assertTrue(data["announce"] )
         self.assertEqual(data["extra"], {"announce_volume": 20})
         self.assertNotIn("options", data)
