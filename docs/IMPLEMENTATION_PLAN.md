@@ -15,8 +15,9 @@ items. Phase 0 (removing non-English content) is already done in
 ## 1. How to use this plan
 
 1. Work through the phases in order. Each prompt is one branch and one pull request.
-2. Open a Claude Code session in this repository and paste the prompt. Every prompt starts by
-   telling the AI to read **Section 2 (Working rules)** of this file.
+2. Open a Claude Code session in this repository, set the model and effort from the prompt's
+   **Run with** line (see "Choosing the model and effort" below), and paste the prompt. Every
+   prompt starts by telling the AI to read **Section 2 (Working rules)** of this file.
 3. Status labels on each finding:
    - **Verified**: confirmed by reading the code during the review.
    - **Reported**: found by a review agent and not re-checked line by line. The prompt tells the AI
@@ -36,6 +37,69 @@ items. Phase 0 (removing non-English content) is already done in
 | 6. Fix the schedule, timer, volume-window and calendar bugs | Phase 6 (remaining bugs in Phases 7 and 8) |
 | 7. Add a LICENSE file | Phase 10 (Prompt 10.1; can be done any time, it is a human decision) |
 | Code structure (runtime.py size, duplicate schedulers, dead code) | Phase 9 |
+
+### Choosing the model and effort
+
+Each prompt has a **Run with** line naming the Claude model and effort level to use. Set
+both before you paste the prompt; the prompt itself cannot change them.
+
+- Inside a Claude Code session: `/model fable` (or `opus`, `sonnet`) and `/effort xhigh`
+  (or `low`, `medium`, `high`, `max`).
+- From the terminal: the **Run with** line includes the full command, for example
+  `claude --model opus --effort high`.
+- Defaults differ by model (Opus 5.5 starts at `medium`), so always set effort explicitly.
+- "Plan mode first" means start in plan mode (Shift+Tab, or `--permission-mode plan`) so the
+  AI proposes its approach before editing. Review the plan, then leave plan mode to implement.
+
+| Tier | Model and effort | Use for | Prompts |
+|---|---|---|---|
+| Deepest | Fable (`fable`) at `xhigh` or `high` | Security changes where a subtle miss reopens a hole, and the long `runtime.py` refactor | 1.1, 2.2, 9.3 |
+| Strong | Opus (`opus`) at `high`, or `xhigh` for long or edge-case-heavy work | Concurrency, lifecycle, time and daylight-saving logic, the test harness, security changes with a bounded scope | 2.1, 2.3, 3.1, 4.2, 5.1, 6.1-6.5, 7.1, 7.4, 7.5, 9.2 |
+| Efficient | Sonnet (`sonnet`) at `medium` or `high` (`low` for 10.1) | Well-specified, localized changes | 2.4, 3.2, 4.1, 5.2, 6.6, 7.2, 7.3, 7.6, 8.1-8.4, 9.1, 10.1, 10.2 |
+
+- Totals: 3 prompts on Fable, 14 on Opus, 15 on Sonnet.
+- Relative cost, as API list prices per million input/output tokens: Fable 5.1 $10/$50,
+  Opus 5.5 $4/$20, Sonnet 5 $2/$10.
+- Haiku is not recommended for any prompt. It has no effort control, and every prompt needs the
+  AI to confirm a finding, make judgment calls and write tests.
+- If a run struggles (tests keep failing, or the AI cannot confirm the finding), raise effort one
+  step before switching to a larger model. For follow-up fixes on the same PR (review comments,
+  lint), one step lower is usually enough.
+
+| Prompt | Model | Effort | Plan mode first |
+|---|---|---|---|
+| 1.1 | Fable | `xhigh` | No |
+| 2.1 | Opus | `high` | No |
+| 2.2 | Fable | `high` | Yes |
+| 2.3 | Opus | `high` | No |
+| 2.4 | Sonnet | `high` | No |
+| 3.1 | Opus | `xhigh` | Yes |
+| 3.2 | Sonnet | `medium` | No |
+| 4.1 | Sonnet | `medium` | No |
+| 4.2 | Opus | `high` | No |
+| 5.1 | Opus | `xhigh` | Yes |
+| 5.2 | Sonnet | `medium` | No |
+| 6.1 | Opus | `high` | No |
+| 6.2 | Opus | `high` | No |
+| 6.3 | Opus | `xhigh` | No |
+| 6.4 | Opus | `high` | No |
+| 6.5 | Opus | `high` | No |
+| 6.6 | Sonnet | `high` | No |
+| 7.1 | Opus | `high` | No |
+| 7.2 | Sonnet | `high` | No |
+| 7.3 | Sonnet | `medium` | No |
+| 7.4 | Opus | `high` | No |
+| 7.5 | Opus | `high` | No |
+| 7.6 | Sonnet | `high` | No |
+| 8.1 | Sonnet | `medium` | No |
+| 8.2 | Sonnet | `high` | No |
+| 8.3 | Sonnet | `medium` | No |
+| 8.4 | Sonnet | `medium` | No |
+| 9.1 | Sonnet | `medium` | No |
+| 9.2 | Opus | `xhigh` | Yes |
+| 9.3 | Fable | `xhigh` | Yes |
+| 10.1 | Sonnet | `low` | No |
+| 10.2 | Sonnet | `medium` | No |
 
 ---
 
@@ -193,6 +257,10 @@ N-1 to N-6. No prompt needed.
 
 #### Prompt 1.1: Harden both artwork proxy views (S-1)
 
+**Run with:** Fable at `xhigh` effort. Command: `claude --model fable --effort xhigh`
+
+**Why:** Critical security fix with subtle edge cases (redirects, DNS rebinding, IPv6-mapped addresses, content sniffing). A miss leaves the hole open.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -281,6 +349,10 @@ Tests
 
 #### Prompt 2.1: Narrow the MA command bridge (S-2)
 
+**Run with:** Opus at `high` effort. Command: `claude --model opus --effort high`
+
+**Why:** Security change with a bounded scope: an exact allowlist and payload cleanup. Needs care not to break commands the card uses.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -344,6 +416,10 @@ Tests
 
 #### Prompt 2.2: Add authorization to WebSocket commands, HTTP views and services (S-3)
 
+**Run with:** Fable at `high` effort, plan mode first. Command: `claude --model fable --effort high --permission-mode plan`
+
+**Why:** Permission model across about 50 commands, the HTTP views and services, plus a new option. Design decisions come first, and a mistake either locks users out or leaves writes open.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -397,6 +473,10 @@ Tests
 
 #### Prompt 2.3: Validate URLs passed to Music Assistant (S-5)
 
+**Run with:** Opus at `high` effort. Command: `claude --model opus --effort high`
+
+**Why:** SSRF validation is easy to get subtly wrong. Reuses the fetch helper from Prompt 1.1 if it exists.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -432,6 +512,10 @@ Tests
 
 #### Prompt 2.4: Bind Sendspin sessions to the HA user (S-8)
 
+**Run with:** Sonnet at `high` effort. Command: `claude --model sonnet --effort high`
+
+**Why:** Small, contained change. High effort so it checks how Music Assistant uses client IDs before changing them.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -463,6 +547,10 @@ Tests
 ### Phase 3: Lifecycle and entity bugs
 
 #### Prompt 3.1: Make unload actually stop the integration (B-2, S-9, B-29)
+
+**Run with:** Opus at `xhigh` effort, plan mode first. Command: `claude --model opus --effort xhigh --permission-mode plan`
+
+**Why:** Home Assistant lifecycle across many call sites (tasks, listeners, views, setup). Long, multi-file work where one missed task keeps running.
 
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
@@ -515,6 +603,10 @@ Tests
 
 #### Prompt 3.2: Stop deleting the volume-rule sliders (B-1)
 
+**Run with:** Sonnet at `medium` effort. Command: `claude --model sonnet --effort medium`
+
+**Why:** Verified, localized bug with a clear fix in two files.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -556,6 +648,10 @@ Tests
 
 #### Prompt 4.1: Redact diagnostics (S-4, B-25)
 
+**Run with:** Sonnet at `medium` effort. Command: `claude --model sonnet --effort medium`
+
+**Why:** Well-specified redaction using a standard Home Assistant helper.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -596,6 +692,10 @@ Tests
 ```
 
 #### Prompt 4.2: Harden setup and onboarding (S-7a to S-7e)
+
+**Run with:** Opus at `high` effort. Command: `claude --model opus --effort high`
+
+**Why:** Config entry migration plus MA token revocation. Needs care with MA's API and with existing installs.
 
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
@@ -642,6 +742,10 @@ Tests
 
 #### Prompt 5.1: Add real Home Assistant tests (H-3)
 
+**Run with:** Opus at `xhigh` effort, plan mode first. Command: `claude --model opus --effort xhigh --permission-mode plan`
+
+**Why:** Long task that sets the testing foundation: a fake MA server and fixtures that later prompts depend on.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -672,6 +776,10 @@ Required changes
 ```
 
 #### Prompt 5.2: Strengthen CI (H-4, H-6)
+
+**Run with:** Sonnet at `medium` effort. Command: `claude --model sonnet --effort medium`
+
+**Why:** Mostly CI configuration and mechanical lint fixes.
 
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
@@ -705,6 +813,10 @@ Required changes
 ### Phase 6: Scheduling, timers, volume windows and calendar
 
 #### Prompt 6.1: Stop schedules re-queuing media (B-3)
+
+**Run with:** Opus at `high` effort. Command: `claude --model opus --effort high`
+
+**Why:** Changes playback verification behavior; must not replay or double-add media.
 
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
@@ -740,6 +852,10 @@ Tests
 
 #### Prompt 6.2: Fix the timer race (B-8)
 
+**Run with:** Opus at `high` effort. Command: `claude --model opus --effort high`
+
+**Why:** Concurrency fix where the race is easy to reintroduce.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -764,6 +880,10 @@ Tests
 ```
 
 #### Prompt 6.3: Fix overnight windows, the end minute and daylight saving (B-6, B-11)
+
+**Run with:** Opus at `xhigh` effort. Command: `claude --model opus --effort xhigh`
+
+**Why:** Time-window and daylight-saving logic with many edge cases, each of which needs a test.
 
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
@@ -802,6 +922,10 @@ Tests
 
 #### Prompt 6.4: Prevent double runs and lost edits (B-12, B-13, H-5f)
 
+**Run with:** Opus at `high` effort. Command: `claude --model opus --effort high`
+
+**Why:** Persistence and concurrent-edit handling in the schedule runner.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -833,6 +957,10 @@ Tests
 
 #### Prompt 6.5: Fix alarm readiness (B-9)
 
+**Run with:** Opus at `high` effort. Command: `claude --model opus --effort high`
+
+**Why:** Cache refresh driven by the MA event stream, with fallback logic.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -861,6 +989,10 @@ Tests
 ```
 
 #### Prompt 6.6: Fix the schedule calendar (B-5)
+
+**Run with:** Sonnet at `high` effort. Command: `claude --model sonnet --effort high`
+
+**Why:** Contained to calendar.py, but Home Assistant calendar semantics need care.
 
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
@@ -896,6 +1028,10 @@ Tests
 ### Phase 7: Performance and resource limits
 
 #### Prompt 7.1: Fix stuck in-flight requests (B-4, B-18)
+
+**Run with:** Opus at `high` effort. Command: `claude --model opus --effort high`
+
+**Why:** Async cancellation and single-flight behavior are subtle to get right.
 
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
@@ -936,6 +1072,10 @@ Tests
 ```
 
 #### Prompt 7.2: Bound the in-memory caches (S-6a, S-6b, S-6d, B-28)
+
+**Run with:** Sonnet at `high` effort. Command: `claude --model sonnet --effort high`
+
+**Why:** Well-specified LRU/TTL helper and size limits.
 
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
@@ -979,6 +1119,10 @@ Tests
 
 #### Prompt 7.3: Bound stored data (S-6c)
 
+**Run with:** Sonnet at `medium` effort. Command: `claude --model sonnet --effort medium`
+
+**Why:** Straightforward validation limits.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -1003,6 +1147,10 @@ Tests: each limit is enforced; invalid profile IDs are rejected.
 ```
 
 #### Prompt 7.4: Reduce database and CPU load (B-7a to B-7e)
+
+**Run with:** Opus at `high` effort. Command: `claude --model opus --effort high`
+
+**Why:** Touches an event the card may rely on, plus recorder and sensor behavior.
 
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
@@ -1046,6 +1194,10 @@ Tests
 
 #### Prompt 7.5: Fix statistics side effects and library invalidation (B-14, B-15)
 
+**Run with:** Opus at `high` effort. Command: `claude --model opus --effort high`
+
+**Why:** Removes hidden state changes and must confirm MA's exact event names.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -1078,6 +1230,10 @@ Tests
 ```
 
 #### Prompt 7.6: Remove hot-path inefficiencies (B-17, B-26, B-27)
+
+**Run with:** Sonnet at `high` effort. Command: `claude --model sonnet --effort high`
+
+**Why:** Performance changes with clear targets; queue windowing must keep the card working.
 
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
@@ -1113,6 +1269,10 @@ Tests
 
 #### Prompt 8.1: Fix player command edge cases (B-10, B-16)
 
+**Run with:** Sonnet at `medium` effort. Command: `claude --model sonnet --effort medium`
+
+**Why:** Small schema and unit fixes.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -1138,6 +1298,10 @@ Tests
 ```
 
 #### Prompt 8.2: Fix the system screensaver script (B-20, B-21, B-22)
+
+**Run with:** Sonnet at `high` effort. Command: `claude --model sonnet --effort high`
+
+**Why:** Frontend JavaScript plus Home Assistant signed paths; needs manual test steps.
 
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
@@ -1171,6 +1335,10 @@ test steps in the PR.
 
 #### Prompt 8.3: Fix sensor metadata (B-23, B-24)
 
+**Run with:** Sonnet at `medium` effort. Command: `claude --model sonnet --effort medium`
+
+**Why:** Metadata changes, with a note about long-term statistics.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -1194,6 +1362,10 @@ Tests: device classes, state classes and value types are as expected.
 ```
 
 #### Prompt 8.4: Stop dropping artwork-lighting updates (B-19)
+
+**Run with:** Sonnet at `medium` effort. Command: `claude --model sonnet --effort medium`
+
+**Why:** Small coalescing change in one module.
 
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
@@ -1219,6 +1391,10 @@ without waiting for the 10-second tick.
 
 #### Prompt 9.1: Remove dead code and small inconsistencies (H-5c, H-5d, H-5e)
 
+**Run with:** Sonnet at `medium` effort. Command: `claude --model sonnet --effort medium`
+
+**Why:** Deletions after confirming there are no callers.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -1240,6 +1416,10 @@ Tests: the existing suite passes; add a test for retry settings if you keep them
 
 #### Prompt 9.2: Use one scheduler for schedules (H-5b)
 
+**Run with:** Opus at `xhigh` effort, plan mode first. Command: `claude --model opus --effort xhigh --permission-mode plan`
+
+**Why:** Consolidates three schedulers; a mistake causes missed or doubled alarms.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -1258,6 +1438,10 @@ volume-policy enforcement. Remove the switch-level timer (the switch only toggle
 ```
 
 #### Prompt 9.3: Split runtime.py into modules (H-5a)
+
+**Run with:** Fable at `xhigh` effort, plan mode first. Command: `claude --model fable --effort xhigh --permission-mode plan`
+
+**Why:** Long refactor of a 6,300-line file that must keep behavior identical. The longest-running task in the plan.
 
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
@@ -1284,6 +1468,10 @@ Rules
 
 #### Prompt 10.1: Add a license (H-1)
 
+**Run with:** Sonnet at `low` effort. Command: `claude --model sonnet --effort low`
+
+**Why:** Check upstream's license and draft a file. No code changes.
+
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
 
@@ -1305,6 +1493,10 @@ Steps
 ```
 
 #### Prompt 10.2: Make the fork's identity consistent (H-2)
+
+**Run with:** Sonnet at `medium` effort. Command: `claude --model sonnet --effort medium`
+
+**Why:** Documentation and metadata edits after your branding decisions.
 
 ```text
 Read docs/IMPLEMENTATION_PLAN.md Section 2 (Working rules) and follow them.
