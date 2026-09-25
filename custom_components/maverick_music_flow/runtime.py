@@ -1839,6 +1839,11 @@ class HomeiiFlowRuntime:
                     "saved_playlists": stored.get("saved_playlists") if isinstance(stored.get("saved_playlists"), dict) else {},
                     "screensaver": stored.get("screensaver") if isinstance(stored.get("screensaver"), dict) else {},
                     "artwork_lighting": stored.get("artwork_lighting") if isinstance(stored.get("artwork_lighting"), dict) else {},
+                    "sendspin_clients": {
+                        client_id: user_id
+                        for client_id, user_id in stored["sendspin_clients"].items()
+                        if isinstance(client_id, str) and isinstance(user_id, str)
+                    } if isinstance(stored.get("sendspin_clients"), dict) else {},
                 }
             )
         stored_secret = stored.get("artwork_token_secret") if isinstance(stored, dict) else None
