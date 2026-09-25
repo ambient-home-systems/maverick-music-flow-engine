@@ -91,7 +91,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_sendspin_status)
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/get_context", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/get_context", **BASE_SCHEMA})
 @callback
 def websocket_get_context(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return Engine context."""
@@ -102,7 +102,7 @@ def websocket_get_context(hass: HomeAssistant, connection: ActiveConnection, msg
     connection.send_result(msg["id"], result)
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/bootstrap/get", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/bootstrap/get", **BASE_SCHEMA})
 @websocket_api.async_response
 async def websocket_get_bootstrap(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return a coherent startup snapshot in one Home Assistant round trip."""
@@ -116,21 +116,21 @@ async def websocket_get_bootstrap(hass: HomeAssistant, connection: ActiveConnect
         connection.send_error(msg["id"], "bootstrap_failed", str(err))
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/connections/get", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/connections/get", **BASE_SCHEMA})
 @callback
 def websocket_get_required_connections(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return required Engine connection health."""
     connection.send_result(msg["id"], _runtime(hass).required_connections_snapshot())
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/stats/get", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/stats/get", **BASE_SCHEMA})
 @callback
 def websocket_get_stats(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return Engine stats."""
     connection.send_result(msg["id"], _runtime(hass).stats())
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/playback_stats/get", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/playback_stats/get", **BASE_SCHEMA})
 @callback
 def websocket_get_playback_stats(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return passive playback statistics."""
@@ -139,7 +139,7 @@ def websocket_get_playback_stats(hass: HomeAssistant, connection: ActiveConnecti
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/players/get",
+        vol.Required("type"): "maverick_music_flow/players/get",
         **BASE_SCHEMA,
         vol.Optional("include_all", default=False): bool,
         vol.Optional("include_generic", default=False): bool,
@@ -154,7 +154,7 @@ async def websocket_get_players(hass: HomeAssistant, connection: ActiveConnectio
         connection.send_error(msg["id"], "players_failed", str(err))
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/diagnostics/run", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/diagnostics/run", **BASE_SCHEMA})
 @callback
 def websocket_run_diagnostics(
     hass: HomeAssistant,
@@ -186,7 +186,7 @@ def websocket_run_diagnostics(
     )
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/orchestration/status", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/orchestration/status", **BASE_SCHEMA})
 @callback
 def websocket_get_orchestration_status(
     hass: HomeAssistant,
@@ -197,7 +197,7 @@ def websocket_get_orchestration_status(
     connection.send_result(msg["id"], _runtime(hass).orchestration_status())
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/orchestration/run_once", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/orchestration/run_once", **BASE_SCHEMA})
 @websocket_api.async_response
 async def websocket_run_orchestration_once(
     hass: HomeAssistant,
@@ -213,7 +213,7 @@ async def websocket_run_orchestration_once(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/playback/play_media",
+        vol.Required("type"): "maverick_music_flow/playback/play_media",
         **BASE_SCHEMA,
         vol.Optional("player"): str,
         vol.Optional("entity_id"): str,
@@ -244,7 +244,7 @@ async def websocket_play_media(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/player/command",
+        vol.Required("type"): "maverick_music_flow/player/command",
         **BASE_SCHEMA,
         vol.Optional("player"): str,
         vol.Optional("entity_id"): str,
@@ -278,7 +278,7 @@ async def websocket_player_command(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/ma/command",
+        vol.Required("type"): "maverick_music_flow/ma/command",
         **BASE_SCHEMA,
         vol.Required("command"): str,
         vol.Optional("args", default=dict): dict,
@@ -299,7 +299,7 @@ async def websocket_music_assistant_command(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/queue/get",
+        vol.Required("type"): "maverick_music_flow/queue/get",
         **BASE_SCHEMA,
         vol.Optional("entity_id"): str,
         vol.Optional("selected_player"): str,
@@ -323,7 +323,7 @@ async def websocket_get_queue(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/queue/action",
+        vol.Required("type"): "maverick_music_flow/queue/action",
         **BASE_SCHEMA,
         vol.Optional("entity_id"): str,
         vol.Optional("player"): str,
@@ -350,7 +350,7 @@ async def websocket_queue_action(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/queue/transfer",
+        vol.Required("type"): "maverick_music_flow/queue/transfer",
         **BASE_SCHEMA,
         vol.Optional("source_player"): str,
         vol.Optional("source_entity_id"): str,
@@ -375,7 +375,7 @@ async def websocket_transfer_queue(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/library/get",
+        vol.Required("type"): "maverick_music_flow/library/get",
         **BASE_SCHEMA,
         vol.Optional("media_type"): str,
         vol.Optional("type"): str,
@@ -406,7 +406,7 @@ async def websocket_get_library(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/favorites/get",
+        vol.Required("type"): "maverick_music_flow/favorites/get",
         **BASE_SCHEMA,
         vol.Optional("media_types"): [str],
         vol.Optional("limit"): int,
@@ -428,7 +428,7 @@ async def websocket_get_favorites(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/favorites/set",
+        vol.Required("type"): "maverick_music_flow/favorites/set",
         **BASE_SCHEMA,
         vol.Required("favorite"): bool,
         vol.Optional("uri"): str,
@@ -455,7 +455,7 @@ async def websocket_set_favorite(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/search/get",
+        vol.Required("type"): "maverick_music_flow/search/get",
         **BASE_SCHEMA,
         vol.Optional("query"): str,
         vol.Optional("search"): str,
@@ -483,7 +483,7 @@ async def websocket_get_search(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/group/apply",
+        vol.Required("type"): "maverick_music_flow/group/apply",
         **BASE_SCHEMA,
         vol.Optional("owner"): str,
         vol.Optional("entity_id"): str,
@@ -505,7 +505,7 @@ async def websocket_apply_group(
         connection.send_error(msg["id"], "group_apply_failed", str(err))
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/schedules/get", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/schedules/get", **BASE_SCHEMA})
 @callback
 def websocket_get_schedules(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return stored schedules."""
@@ -523,7 +523,7 @@ def websocket_get_schedules(hass: HomeAssistant, connection: ActiveConnection, m
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/schedules/set",
+        vol.Required("type"): "maverick_music_flow/schedules/set",
         **BASE_SCHEMA,
         vol.Optional("schedule_id"): str,
         vol.Optional("name"): str,
@@ -567,7 +567,7 @@ async def websocket_set_schedule(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/schedules/delete",
+        vol.Required("type"): "maverick_music_flow/schedules/delete",
         **BASE_SCHEMA,
         vol.Optional("schedule_id"): str,
     }
@@ -587,7 +587,7 @@ async def websocket_delete_schedule(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/schedules/run",
+        vol.Required("type"): "maverick_music_flow/schedules/run",
         **BASE_SCHEMA,
         vol.Optional("id"): str,
         vol.Optional("schedule_id"): str,
@@ -606,7 +606,7 @@ async def websocket_run_schedule(
         connection.send_error(msg["id"], "schedule_run_failed", str(err))
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/timers/get", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/timers/get", **BASE_SCHEMA})
 @callback
 def websocket_get_timers(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return stored timers."""
@@ -624,7 +624,7 @@ def websocket_get_timers(hass: HomeAssistant, connection: ActiveConnection, msg:
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/timers/set",
+        vol.Required("type"): "maverick_music_flow/timers/set",
         **BASE_SCHEMA,
         vol.Optional("timer_id"): str,
         vol.Optional("timer_type"): str,
@@ -654,7 +654,7 @@ async def websocket_set_timer(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/timers/delete",
+        vol.Required("type"): "maverick_music_flow/timers/delete",
         **BASE_SCHEMA,
         vol.Optional("timer_id"): str,
         vol.Optional("player"): str,
@@ -674,7 +674,7 @@ async def websocket_delete_timer(
         connection.send_error(msg["id"], "timer_delete_failed", str(err))
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/volume_rules/get", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/volume_rules/get", **BASE_SCHEMA})
 @callback
 def websocket_get_volume_rules(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return stored volume rules."""
@@ -692,7 +692,7 @@ def websocket_get_volume_rules(hass: HomeAssistant, connection: ActiveConnection
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/volume_rules/set",
+        vol.Required("type"): "maverick_music_flow/volume_rules/set",
         **BASE_SCHEMA,
         vol.Required("player"): str,
         vol.Required("max_volume"): int,
@@ -717,7 +717,7 @@ async def websocket_set_volume_rule(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/volume_rules/delete",
+        vol.Required("type"): "maverick_music_flow/volume_rules/delete",
         **BASE_SCHEMA,
         vol.Required("player"): str,
     }
@@ -735,7 +735,7 @@ async def websocket_delete_volume_rule(
         connection.send_error(msg["id"], "volume_rule_delete_failed", str(err))
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/volume_rules/clear", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/volume_rules/clear", **BASE_SCHEMA})
 @websocket_api.async_response
 async def websocket_clear_volume_rules(
     hass: HomeAssistant,
@@ -750,14 +750,14 @@ async def websocket_clear_volume_rules(
         connection.send_error(msg["id"], "volume_rules_clear_failed", str(err))
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/announcements/get", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/announcements/get", **BASE_SCHEMA})
 @callback
 def websocket_get_announcements(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return recorded announcements."""
     connection.send_result(msg["id"], {"announcements": _runtime(hass).announcements(msg.get(CONF_PROFILE_ID))})
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/activity/get", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/activity/get", **BASE_SCHEMA})
 @callback
 def websocket_get_activity(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return recent Engine activity."""
@@ -773,7 +773,7 @@ def websocket_get_activity(hass: HomeAssistant, connection: ActiveConnection, ms
     )
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/screensaver/get", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/screensaver/get", **BASE_SCHEMA})
 @callback
 def websocket_get_screensaver(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> None:
     """Return system-wide screensaver configuration and state."""
@@ -782,7 +782,7 @@ def websocket_get_screensaver(hass: HomeAssistant, connection: ActiveConnection,
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/screensaver/set",
+        vol.Required("type"): "maverick_music_flow/screensaver/set",
         **BASE_SCHEMA,
         vol.Optional("enabled"): bool,
         vol.Optional("timeout_seconds"): int,
@@ -811,7 +811,7 @@ async def websocket_set_screensaver(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/screensaver/show",
+        vol.Required("type"): "maverick_music_flow/screensaver/show",
         **BASE_SCHEMA,
     }
 )
@@ -830,7 +830,7 @@ async def websocket_show_screensaver(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/announce",
+        vol.Required("type"): "maverick_music_flow/announce",
         **BASE_SCHEMA,
         vol.Required("message"): str,
         vol.Optional("player"): str,
@@ -859,7 +859,7 @@ async def websocket_announce(
 
 @websocket_api.websocket_command(
     {
-        vol.Required("type"): "homeii_flow/sendspin/status",
+        vol.Required("type"): "maverick_music_flow/sendspin/status",
         **BASE_SCHEMA,
         vol.Optional("player_id"): str,
     }
@@ -875,7 +875,7 @@ def websocket_sendspin_status(
 
 
 @websocket_api.websocket_command({
-    vol.Required("type"): "homeii_flow/queue/settings", **BASE_SCHEMA,
+    vol.Required("type"): "maverick_music_flow/queue/settings", **BASE_SCHEMA,
     vol.Optional("values"): dict,
 })
 @websocket_api.async_response
@@ -892,7 +892,7 @@ async def websocket_queue_settings(hass, connection, msg):
         connection.send_error(msg["id"], "queue_settings_failed", str(err))
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/lighting/get", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/lighting/get", **BASE_SCHEMA})
 @callback
 def websocket_get_artwork_lighting(hass, connection, msg):
     """Return persistent player/light assignments and their current status."""
@@ -900,7 +900,7 @@ def websocket_get_artwork_lighting(hass, connection, msg):
 
 
 @websocket_api.websocket_command({
-    vol.Required("type"): "homeii_flow/lighting/set", **BASE_SCHEMA,
+    vol.Required("type"): "maverick_music_flow/lighting/set", **BASE_SCHEMA,
     vol.Required("player"): str, vol.Optional("lights"): [str],
     vol.Optional("enabled"): bool, vol.Optional("brightness"): vol.Coerce(float),
     vol.Optional("transition"): vol.Coerce(float), vol.Optional("cooldown"): vol.Coerce(float),
@@ -914,7 +914,7 @@ async def websocket_set_artwork_lighting(hass, connection, msg):
         connection.send_error(msg["id"], "lighting_failed", str(err))
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/radio/search", **BASE_SCHEMA,
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/radio/search", **BASE_SCHEMA,
     vol.Optional("query",default=""): str, vol.Optional("country",default=""): str,
     vol.Optional("tag",default=""): str, vol.Optional("limit",default=40): vol.All(vol.Coerce(int),vol.Range(min=8,max=80))})
 @websocket_api.async_response
@@ -926,13 +926,13 @@ async def websocket_radio_search(hass, connection, msg):
         connection.send_error(msg["id"], "radio_search_failed", str(err))
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/interface/get", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/interface/get", **BASE_SCHEMA})
 @callback
 def websocket_get_interface_preferences(hass, connection, msg):
     connection.send_result(msg["id"], read_preferences(_runtime(hass), msg.get("profile_id")))
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/interface/set", **BASE_SCHEMA,
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/interface/set", **BASE_SCHEMA,
     vol.Optional("night_mode"): str, vol.Optional("night_start"): str,
     vol.Optional("night_end"): str, vol.Optional("night_days"): [int]})
 @websocket_api.async_response
@@ -943,13 +943,13 @@ async def websocket_set_interface_preferences(hass, connection, msg):
         connection.send_error(msg["id"], "interface_set_failed", str(err))
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/wheels/get", **BASE_SCHEMA})
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/wheels/get", **BASE_SCHEMA})
 @callback
 def websocket_get_wheel_preferences(hass, connection, msg):
     connection.send_result(msg["id"], read_wheel_preferences(_runtime(hass), msg.get("profile_id"), connection.user.id))
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/wheels/set", **BASE_SCHEMA,
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/wheels/set", **BASE_SCHEMA,
     vol.Required("scope"): vol.In(["user", "global"]), vol.Required("context"): str,
     vol.Required("preference"): dict})
 @websocket_api.async_response
@@ -961,7 +961,7 @@ async def websocket_set_wheel_preferences(hass, connection, msg):
         connection.send_error(msg["id"], "wheel_save_failed", str(err))
 
 
-@websocket_api.websocket_command({vol.Required("type"): "homeii_flow/playlists", **BASE_SCHEMA,
+@websocket_api.websocket_command({vol.Required("type"): "maverick_music_flow/playlists", **BASE_SCHEMA,
     vol.Optional("action", default="list"): vol.In(["list", "save", "play", "delete"]),
     vol.Optional("name"): str, vol.Optional("uris"): [str], vol.Optional("playlist_id"): str})
 @websocket_api.async_response

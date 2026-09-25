@@ -12,7 +12,7 @@ from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock
 from PIL import Image
 
-source = Path(__file__).resolve().parents[1] / 'custom_components/homeii_flow/artwork_lighting.py'
+source = Path(__file__).resolve().parents[1] / 'custom_components/maverick_music_flow/artwork_lighting.py'
 tree = ast.parse(source.read_text(encoding='utf-8-sig'))
 nodes = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))]
 namespace = dict(datetime=datetime, UTC=UTC, asyncio=asyncio, copy=copy, timedelta=timedelta, BytesIO=BytesIO, time=time, Image=Image, _LOGGER=logging.getLogger(__name__), DATA_COMPONENT='media_player', callback=lambda fn:fn, async_track_state_change_event=lambda *args:lambda:None)

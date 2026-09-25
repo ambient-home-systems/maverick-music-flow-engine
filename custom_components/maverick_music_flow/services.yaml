@@ -521,7 +521,7 @@ run_orchestration:
 
 set_screensaver:
   name: Set system screensaver
-  description: Configure the HOMEii Flow system-wide dashboard screensaver. Add /homeii_flow/homeii-flow-system-screensaver.js as a Lovelace JavaScript module resource to activate it on all dashboard pages.
+  description: Configure the HOMEii Flow system-wide dashboard screensaver. Add /maverick_music_flow/maverick-music-flow-system-screensaver.js as a Lovelace JavaScript module resource to activate it on all dashboard pages.
   fields:
     profile_id:
       name: Profile ID

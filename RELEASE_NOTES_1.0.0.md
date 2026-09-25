@@ -8,7 +8,7 @@ HOMEii Flow Engine is the Home Assistant custom integration behind HOMEii Music 
 ## Install
 
 1. Back up Home Assistant and the dashboard configuration.
-2. In HACS, add `https://github.com/r11a/homeii-flow-engine` as a custom **Integration** repository.
+2. In HACS, add `https://github.com/ambient-home-systems/maverick-music-flow-engine` as a custom **Integration** repository.
 3. Install HOMEii Flow Engine 1.0.0 and restart Home Assistant.
 4. Open **Settings → Devices & services → Add integration → HOMEii Flow Engine**.
 5. Enter the direct Music Assistant server URL, normally on port 8095. Do not use the HA ingress page.

@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock
-source=Path(__file__).resolve().parents[1]/"custom_components/homeii_flow/saved_playlists.py"
+source=Path(__file__).resolve().parents[1]/"custom_components/maverick_music_flow/saved_playlists.py"
 ns={"copy":copy,"uuid":uuid}
 tree=ast.parse(source.read_text(encoding="utf-8"))
 exec(compile(ast.Module(body=[n for n in tree.body if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef))],type_ignores=[]),str(source),"exec"),ns)

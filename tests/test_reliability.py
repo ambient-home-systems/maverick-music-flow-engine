@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "custom_components/homeii_flow/runtime.py"
+SOURCE = ROOT / "custom_components/maverick_music_flow/runtime.py"
 if not SOURCE.exists():
     SOURCE = Path(__file__).with_name("runtime.py")
 tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
@@ -34,7 +34,7 @@ registry = SimpleNamespace(entities={}, async_get=lambda _: None)
 namespace = {"time": time, "DEFAULT_PROFILE_ID": "default", "asyncio": asyncio, "copy": copy, "Any": Any, "datetime": datetime, "UTC": UTC,
              "HomeiiFlowServiceUnavailable": RuntimeError, "er": SimpleNamespace(async_get=lambda _: registry)}
 exec(compile(ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[])), str(SOURCE), "exec"), namespace)
-exec((ROOT / "custom_components/homeii_flow/player_timing.py").read_text(encoding="utf-8"), namespace)
+exec((ROOT / "custom_components/maverick_music_flow/player_timing.py").read_text(encoding="utf-8"), namespace)
 Runtime = namespace["HomeiiFlowRuntime"]
 
 

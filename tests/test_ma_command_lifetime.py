@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock
 
-SOURCE = Path(__file__).resolve().parents[1] / 'custom_components/homeii_flow/ma_client.py'
+SOURCE = Path(__file__).resolve().parents[1] / 'custom_components/maverick_music_flow/ma_client.py'
 tree = ast.parse(SOURCE.read_text(encoding='utf-8'))
 cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'MusicAssistantEventClient')
 cls.body = [n for n in cls.body if isinstance(n, ast.AsyncFunctionDef) and n.name == 'async_command']

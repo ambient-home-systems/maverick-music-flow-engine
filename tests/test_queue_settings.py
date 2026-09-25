@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock
 
-module = runpy.run_path(str(Path(__file__).resolve().parents[1] / "custom_components/homeii_flow/queue_settings.py"))
+module = runpy.run_path(str(Path(__file__).resolve().parents[1] / "custom_components/maverick_music_flow/queue_settings.py"))
 validate = module["validate_changes"]
 read = module["supported_entries"]
 execute = module["async_queue_settings"]
@@ -62,7 +62,7 @@ class QueueSettingsPermissionTests(unittest.IsolatedAsyncioTestCase):
     async def test_only_admin_can_write_but_authenticated_users_can_read(self):
         import ast
         from unittest.mock import Mock
-        path = Path(__file__).resolve().parents[1] / "custom_components/homeii_flow/websocket_api.py"
+        path = Path(__file__).resolve().parents[1] / "custom_components/maverick_music_flow/websocket_api.py"
         tree = ast.parse(path.read_text(encoding="utf-8"))
         function = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "websocket_queue_settings")
         function.decorator_list = []

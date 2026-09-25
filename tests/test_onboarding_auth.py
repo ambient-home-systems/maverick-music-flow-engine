@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 from unittest import IsolatedAsyncioTestCase
 
-source = Path(__file__).resolve().parents[1] / 'custom_components/homeii_flow/onboarding_auth.py'
+source = Path(__file__).resolve().parents[1] / 'custom_components/maverick_music_flow/onboarding_auth.py'
 nodes = [n for n in ast.parse(source.read_text()).body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
 ns = dict(asyncio=asyncio, urlsplit=urlsplit, urlunsplit=urlunsplit, MUSIC_ASSISTANT_SCHEMA_MIN=63)
 exec(compile(ast.Module(body=nodes, type_ignores=[]), str(source), 'exec'), ns)

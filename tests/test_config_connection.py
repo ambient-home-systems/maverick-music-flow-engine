@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 from unittest import IsolatedAsyncioTestCase
 
-SOURCE = Path(__file__).resolve().parents[1] / "custom_components/homeii_flow/config_flow.py"
+SOURCE = Path(__file__).resolve().parents[1] / "custom_components/maverick_music_flow/config_flow.py"
 node = next(n for n in ast.parse(SOURCE.read_text(encoding="utf-8")).body if isinstance(n, ast.AsyncFunctionDef) and n.name == "_validate_music_assistant_api")
 
 class Response:

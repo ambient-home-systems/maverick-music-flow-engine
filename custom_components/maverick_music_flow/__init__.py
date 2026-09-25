@@ -288,8 +288,8 @@ def _collect_artwork_candidates(value: Any, candidates: list[str], *, depth: int
 class HomeiiFlowArtworkProxyView(HomeAssistantView):
     """Proxy current player artwork through Home Assistant for dashboard agents."""
 
-    url = "/api/homeii_flow/artwork/{entity_id}"
-    name = "api:homeii_flow:artwork"
+    url = "/api/maverick_music_flow/artwork/{entity_id}"
+    name = "api:maverick_music_flow:artwork"
     requires_auth = True
 
     def __init__(self, hass: HomeAssistant) -> None:
@@ -411,8 +411,8 @@ class HomeiiFlowArtworkProxyView(HomeAssistantView):
 class HomeiiFlowItemArtworkProxyView(HomeiiFlowArtworkProxyView):
     """Proxy registered queue/library artwork through Home Assistant."""
 
-    url = "/api/homeii_flow/artwork/item/{token}"
-    name = "api:homeii_flow:item_artwork"
+    url = "/api/maverick_music_flow/artwork/item/{token}"
+    name = "api:maverick_music_flow:item_artwork"
     requires_auth = False
 
     @staticmethod
@@ -475,8 +475,8 @@ class HomeiiFlowItemArtworkProxyView(HomeiiFlowArtworkProxyView):
 class HomeiiFlowCommandView(HomeAssistantView):
     """Expose selected Engine reads over authenticated HTTP for frontend fallbacks."""
 
-    url = "/api/homeii_flow/command/{command:.+}"
-    name = "api:homeii_flow:command"
+    url = "/api/maverick_music_flow/command/{command:.+}"
+    name = "api:maverick_music_flow:command"
     requires_auth = True
 
     def __init__(self, hass: HomeAssistant) -> None:
@@ -597,7 +597,7 @@ async def async_prepare_runtime(hass: HomeAssistant) -> HomeiiFlowRuntime:
         data["websocket_registered"] = True
     if not data.get("frontend_registered"):
         await hass.http.async_register_static_paths(
-            [StaticPathConfig("/homeii_flow", str(FRONTEND_DIR), cache_headers=False)]
+            [StaticPathConfig("/maverick_music_flow", str(FRONTEND_DIR), cache_headers=False)]
         )
         data["frontend_registered"] = True
     if not data.get("artwork_proxy_registered"):

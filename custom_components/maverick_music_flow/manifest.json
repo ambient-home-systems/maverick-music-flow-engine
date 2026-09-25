@@ -1,13 +1,13 @@
 {
-  "domain": "homeii_flow",
+  "domain": "maverick_music_flow",
   "name": "HOMEii Flow Engine",
   "version": "1.0.0",
   "codeowners": [
     "@r11a"
   ],
   "config_flow": true,
-  "documentation": "https://github.com/r11a/homeii-flow-engine",
-  "issue_tracker": "https://github.com/r11a/homeii-flow-engine/issues",
+  "documentation": "https://github.com/ambient-home-systems/maverick-music-flow-engine",
+  "issue_tracker": "https://github.com/ambient-home-systems/maverick-music-flow-engine/issues",
   "integration_type": "hub",
   "iot_class": "local_push",
   "requirements": [],

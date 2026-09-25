@@ -17,13 +17,13 @@
 
 ### 1. Download with HACS
 
-[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=r11a&repository=homeii-flow-engine&category=integration)
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=ambient-home-systems&repository=maverick-music-flow-engine&category=integration)
 
-HACS must already be installed. This is a **custom repository**, not an official HACS default listing. If the button cannot find it, open **HACS → ⋮ → Custom repositories**, add `https://github.com/r11a/homeii-flow-engine`, choose **Integration**, and add it. Open HOMEii Flow Engine, install **1.0.0**, then **restart Home Assistant**. The button opens HACS; it does not silently install anything.
+HACS must already be installed. This is a **custom repository**, not an official HACS default listing. If the button cannot find it, open **HACS → ⋮ → Custom repositories**, add `https://github.com/ambient-home-systems/maverick-music-flow-engine`, choose **Integration**, and add it. Open HOMEii Flow Engine, install **1.0.0**, then **restart Home Assistant**. The button opens HACS; it does not silently install anything.
 
 ### 2. Add and configure the integration after restarting
 
-[![Add integration](https://my.home-assistant.io/badges/config_flow.svg)](https://my.home-assistant.io/redirect/config_flow/?domain=homeii_flow)
+[![Add integration](https://my.home-assistant.io/badges/config_flow.svg)](https://my.home-assistant.io/redirect/config_flow/?domain=maverick_music_flow)
 
 Or go to **Settings → Devices & services → Add integration → HOMEii Flow Engine**.
 
@@ -37,7 +37,7 @@ If My Home Assistant opens the wrong server, change its instance URL to your own
 
 ### Manual installation without HACS
 
-Download [homeii-flow-engine-1.0.0.zip](https://github.com/r11a/homeii-flow-engine/releases/download/v1.0.0/homeii-flow-engine-1.0.0.zip), extract it, and copy the complete `custom_components/homeii_flow` folder into `/config/custom_components/`. The resulting file must be `/config/custom_components/homeii_flow/manifest.json`. Restart HA, then use **Add integration** above. Do not create an extra nested `custom_components` directory.
+Download the zip asset attached to the latest Maverick Music Engine [release](https://github.com/ambient-home-systems/maverick-music-flow-engine/releases), extract it, and copy the complete `custom_components/maverick_music_flow` folder into `/config/custom_components/`. The resulting file must be `/config/custom_components/maverick_music_flow/manifest.json`. Restart HA, then use **Add integration** above. Do not create an extra nested `custom_components` directory.
 
 ## Artwork lighting and listening insights (local beta candidate)
 
@@ -54,7 +54,7 @@ Radio Browser station queries can also run through the Engine (`radio/search`). 
 | Component | What it does | Repository |
 |---|---|---|
 | Music Flow `6.0.0` | Artwork-driven player, contextual wheels, library, queue, lyrics and touch interface | [HOMEii Music Flow](https://github.com/r11a/homeii-music-flow) |
-| Flow Engine `1.0.0` | Required HA integration that connects the card and automations to MA | [HOMEii Flow Engine](https://github.com/r11a/homeii-flow-engine) |
+| Flow Engine `1.0.0` | Required HA integration that connects the card and automations to MA | [HOMEii Flow Engine](https://github.com/ambient-home-systems/maverick-music-flow-engine) |
 
 The Engine is **not an add-on or a Music Assistant server**. It does not replace MA or HA's official Music Assistant integration. The browser connects to HA; the Engine maintains authenticated MA access and shares useful state with the card. MA remains authoritative for players, media and queues.
 
@@ -104,13 +104,13 @@ Stable release packages are available from GitHub Releases and through this cust
 
 ### Manual installation
 
-1. Back up HA and any existing `custom_components/homeii_flow` directory.
+1. Back up HA and any existing `custom_components/maverick_music_flow` directory.
 2. Obtain the exact Engine beta package/source commit intended for testing, not an unrelated moving branch.
-3. Copy **the `homeii_flow` directory inside `custom_components`** to `/config/custom_components/homeii_flow`.
+3. Copy **the `maverick_music_flow` directory inside `custom_components`** to `/config/custom_components/maverick_music_flow`.
 4. Verify this exact layout:
 
 ```text
-/config/custom_components/homeii_flow/
+/config/custom_components/maverick_music_flow/
   __init__.py
   manifest.json
   config_flow.py
@@ -122,14 +122,14 @@ Stable release packages are available from GitHub Releases and through this cust
   ...other files from the package
 ```
 
-5. `manifest.json` must be directly inside `homeii_flow`. Do not copy a repository ZIP as an integration, copy only one Python file, or create `homeii_flow/homeii_flow/manifest.json` accidentally.
+5. `manifest.json` must be directly inside `maverick_music_flow`. Do not copy a repository ZIP as an integration, copy only one Python file, or create `maverick_music_flow/maverick_music_flow/manifest.json` accidentally.
 6. Run HA's configuration check, then **restart Home Assistant**.
 7. Go to **Settings → Devices & services → Add integration → HOMEii Flow Engine**.
 8. Fill the connection fields below and complete setup. Check for setup errors before installing the 6.0 card.
 
 ### HACS installation after public availability is arranged
 
-Add `https://github.com/r11a/homeii-flow-engine` as a custom **Integration** repository, deliberately select the exact beta, download it and restart HA. Adding it in HACS installs files; it does **not** replace the Add integration/configuration steps. The matching [card repository](https://github.com/r11a/homeii-music-flow) is a separate **Dashboard** repository.
+Add `https://github.com/ambient-home-systems/maverick-music-flow-engine` as a custom **Integration** repository, deliberately select the exact beta, download it and restart HA. Adding it in HACS installs files; it does **not** replace the Add integration/configuration steps. The matching [card repository](https://github.com/r11a/homeii-music-flow) is a separate **Dashboard** repository.
 
 For an existing installation, retain its config entry, update the full component directory and restart. Do not delete the entry just to change the MA URL or token. The update does not intentionally reset stored schedules or profiles.
 
@@ -181,7 +181,7 @@ Use **Developer tools → Actions** (called Services in older HA versions), or H
 ### Seek to a position in a track
 
 ```yaml
-action: homeii_flow.player_command
+action: maverick_music_flow.player_command
 data:
   player: media_player.kitchen
   command: seek
@@ -193,7 +193,7 @@ Position is in seconds and requires seekable media. For a supported podcast/audi
 ### Set a 30-minute sleep timer
 
 ```yaml
-action: homeii_flow.set_timer
+action: maverick_music_flow.set_timer
 data:
   profile_id: default
   id: bedtime_kitchen
@@ -203,12 +203,12 @@ data:
   enabled: true
 ```
 
-Cancel with `homeii_flow.delete_timer`, `profile_id: default`, `id: bedtime_kitchen`. It is stored by the Engine and does not depend on the card staying open; HA must remain running to execute it.
+Cancel with `maverick_music_flow.delete_timer`, `profile_id: default`, `id: bedtime_kitchen`. It is stored by the Engine and does not depend on the card staying open; HA must remain running to execute it.
 
 ### Add an overnight volume limit
 
 ```yaml
-action: homeii_flow.set_volume_rule
+action: maverick_music_flow.set_volume_rule
 data:
   profile_id: default
   player: media_player.kitchen
@@ -223,31 +223,31 @@ The rule can lower volume while active. Check your HA timezone and test its boun
 ### Set MA's global playback defaults deliberately
 
 ```yaml
-action: homeii_flow.set_queue_settings
+action: maverick_music_flow.set_queue_settings
 data:
   autoplay_enabled: true
   autoplay_mode: library
   smart_shuffle_enabled: enabled
 ```
 
-This administrator action changes **global MA defaults**, not just one card/player. Only supported fields are accepted; unspecified fields remain unchanged and saved values are read back. Per-queue controls use `homeii_flow.player_command`, for example `command: crossfade` with `crossfade_enabled: true`.
+This administrator action changes **global MA defaults**, not just one card/player. Only supported fields are accepted; unspecified fields remain unchanged and saved values are read back. Per-queue controls use `maverick_music_flow.player_command`, for example `command: crossfade` with `crossfade_enabled: true`.
 
 ### Scheduling and other services
 
-The Configure flow offers guided menus for stored schedules, timers and rules. `homeii_flow.set_schedule` accepts the player, local time, media and optional days/volume; `homeii_flow.run_schedule` tests a saved ID immediately. Check the [service definitions](custom_components/homeii_flow/services.yaml) for exact fields and units before writing an automation. Day indices use **Sunday = 0**. Use a valid media URI from your own MA library, not a made-up example URI.
+The Configure flow offers guided menus for stored schedules, timers and rules. `maverick_music_flow.set_schedule` accepts the player, local time, media and optional days/volume; `maverick_music_flow.run_schedule` tests a saved ID immediately. Check the [service definitions](custom_components/maverick_music_flow/services.yaml) for exact fields and units before writing an automation. Day indices use **Sunday = 0**. Use a valid media URI from your own MA library, not a made-up example URI.
 
 Other actions include `play_media`, `transfer_queue`, `announce`, `delete_schedule`, `delete_volume_rule`, `run_orchestration`, `set_screensaver` and `show_screensaver`. Announcement/TTS configuration and the selected target matter; test on one speaker before expanding to rooms.
 
 ## Optional system screensaver
 
-The served frontend module is `/homeii_flow/homeii-flow-system-screensaver.js`. Add it as a JavaScript module resource and enable the System screensaver entity/setting only if wanted. It is separate from the card's own screensaver and may appear elsewhere in the HA dashboard.
+The served frontend module is `/maverick_music_flow/maverick-music-flow-system-screensaver.js`. Add it as a JavaScript module resource and enable the System screensaver entity/setting only if wanted. It is separate from the card's own screensaver and may appear elsewhere in the HA dashboard.
 
 For non-dashboard HA pages, where Lovelace resources may not load, an advanced option is:
 
 ```yaml
 frontend:
   extra_module_url:
-    - /homeii_flow/homeii-flow-system-screensaver.js
+    - /maverick_music_flow/maverick-music-flow-system-screensaver.js
 ```
 
 Merge into your existing `frontend` section rather than duplicating it. Check configuration, restart HA and refresh the browser. This optional module is not required for music playback.
@@ -258,7 +258,7 @@ Run card Diagnostics and inspect the Engine integration/device page. Check MA ha
 
 Card access uses authenticated HA routes. Administrative/global operations retain their own permission requirements; do not grant extra access simply to hide a permission error. Lyrics external lookup, AI services and music providers have separate privacy/cost behavior configured in their respective systems.
 
-The card/Engine WebSocket interface includes context, players, playback, queue, library, search, favorites, groups, schedules, timers, volume policies, announcements and Sendspin. Developers can inspect [registered commands](custom_components/homeii_flow/websocket_api.py); the beta API can still evolve, so prefer documented HA actions for user automations.
+The card/Engine WebSocket interface includes context, players, playback, queue, library, search, favorites, groups, schedules, timers, volume policies, announcements and Sendspin. Developers can inspect [registered commands](custom_components/maverick_music_flow/websocket_api.py); the beta API can still evolve, so prefer documented HA actions for user automations.
 
 ## Troubleshooting
 
@@ -285,7 +285,7 @@ Open beta areas include long-running groups, device-specific DLNA, Safari/iOS ba
 
 ## Reporting and contributing
 
-[Engine issues](https://github.com/r11a/homeii-flow-engine/issues) are for integration setup, backend behavior and services; [card issues](https://github.com/r11a/homeii-music-flow/issues) are for visual behavior and card navigation. The Engine tracker is visible only to permitted users while the repository is private.
+[Engine issues](https://github.com/ambient-home-systems/maverick-music-flow-engine/issues) are for integration setup, backend behavior and services; [card issues](https://github.com/r11a/homeii-music-flow/issues) are for visual behavior and card navigation. The Engine tracker is visible only to permitted users while the repository is private.
 
 Report both HOMEii versions, HA and MA versions/schema, player model/protocol, provider, exact steps, expected/actual result, native MA comparison and redacted diagnostics. For announcements or groups specify the target speakers. Never post tokens, cookies or full backups.
 
@@ -309,7 +309,7 @@ Built for Home Assistant and Music Assistant, with community feedback shaping th
 
 The card's Smart screen can save night display mode, start/end times and active days in the Engine per profile. Other cards using the same profile receive these preferences in Engine context on refresh/startup. Display night mode does not lower speaker volume; use volume policies for that purpose.
 
-Use the Home Assistant action `homeii_flow.set_interface_preferences` with `profile_id`, `night_mode` (`off`, `on`, `auto`), `night_start` and `night_end` in `HH:MM`, and `night_days` (0 Sunday through 6 Saturday). The card uses `homeii_flow/interface/get` and `homeii_flow/interface/set`; all paths share the same persisted store and validation. Existing card-local night settings remain the fallback until the profile has stored values.
+Use the Home Assistant action `maverick_music_flow.set_interface_preferences` with `profile_id`, `night_mode` (`off`, `on`, `auto`), `night_start` and `night_end` in `HH:MM`, and `night_days` (0 Sunday through 6 Saturday). The card uses `maverick_music_flow/interface/get` and `maverick_music_flow/interface/set`; all paths share the same persisted store and validation. Existing card-local night settings remain the fallback until the profile has stored values.
 
 The Smart screen also edits the existing system screensaver and artwork-lighting configuration. System screensaver display still requires the separate frontend resource described above. Artwork-lighting status reports `updated_at`, `media_title`, `rgb` and failures, enabling verification of actual backend updates while dashboards are closed. A reported update is not an acoustic or visual hardware inspection.
 

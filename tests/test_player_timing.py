@@ -1,7 +1,7 @@
 from pathlib import Path
 import runpy
 import unittest
-pair = runpy.run_path(str(Path(__file__).resolve().parents[1] / "custom_components/homeii_flow/player_timing.py"))["playback_position_pair"]
+pair = runpy.run_path(str(Path(__file__).resolve().parents[1] / "custom_components/maverick_music_flow/player_timing.py"))["playback_position_pair"]
 
 class PlayerTimingTests(unittest.TestCase):
     def test_current_media_clock_replaces_stale_wiim_clock(self):

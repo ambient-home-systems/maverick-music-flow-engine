@@ -24,7 +24,7 @@ Long-running grouping, specific DLNA hardware, mobile background audio, audible 
 
 Published as a public Pre-release, not Latest. Users enabling beta updates or custom update automations control their own update policy; manual version selection is recommended for testing.
 
-Report both component versions, HA/MA version/schema, player model/protocol, reproduction and redacted diagnostics in the [Engine tracker](https://github.com/r11a/homeii-flow-engine/issues). Never share tokens or full backups.
+Report both component versions, HA/MA version/schema, player model/protocol, reproduction and redacted diagnostics in the [Engine tracker](https://github.com/ambient-home-systems/maverick-music-flow-engine/issues). Never share tokens or full backups.
 
 ## Onboarding
 

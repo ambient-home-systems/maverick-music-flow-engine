@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-DOMAIN = "homeii_flow"
+DOMAIN = "maverick_music_flow"
 NAME = "HOMEii Flow Engine"
 VERSION = "1.0.0"
 
