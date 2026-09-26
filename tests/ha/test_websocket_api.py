@@ -23,6 +23,36 @@ from custom_components.maverick_music_flow.const import DOMAIN, VERSION
 
 ITEM_ARTWORK_PREFIX = f"/api/{DOMAIN}/artwork/item/"
 
+# Capabilities the HOMEii Music Flow card checks before using a feature. Removing or
+# flipping one of these to False is a breaking change to the card contract (see the
+# working rules in docs/IMPLEMENTATION_PLAN.md on card compatibility), so this list is
+# a deliberate duplicate of the relevant const.CAPABILITIES entries rather than an
+# import of it: a change here has to be a conscious edit, not a side effect of editing
+# const.py.
+REQUIRED_CAPABILITIES = {
+    "persistent_media_cache",
+    "persistent_media_detail_cache",
+    "stale_while_revalidate",
+    "request_coalescing",
+    "queue_request_coalescing",
+    "compatible_library_shelves",
+    "compact_library_responses",
+    "revisioned_snapshots",
+    "snapshot_epoch",
+    "active_source_contract",
+    "favorite_mutation",
+    "music_assistant_websocket_commands",
+    "music_assistant_schema_63",
+    "music_assistant_2_10",
+    "direct_player_catalog",
+    "direct_library_catalog",
+    "full_queue_snapshots",
+    "queue_autoplay",
+    "stable_artwork_urls",
+    "artwork_etag",
+    "user_authorization",
+}
+
 
 async def _command(client: MockHAClientWebSocket, name: str, /, **data: Any) -> dict[str, Any]:
     """Send one Engine command and return the full response message."""
@@ -59,7 +89,10 @@ async def test_get_context(admin_ws: MockHAClientWebSocket, loaded_entry: MockCo
     """The card's context lists the loaded entry and never includes the MA token."""
     result = await _result(admin_ws, "get_context")
     assert result["version"] == VERSION
-    assert result["capabilities"]["user_authorization"] is True
+    missing = REQUIRED_CAPABILITIES - {
+        name for name, value in result["capabilities"].items() if value is True
+    }
+    assert not missing, f"card-facing capabilities dropped or disabled: {sorted(missing)}"
     assert [entry["entry_id"] for entry in result["entries"]] == [loaded_entry.entry_id]
     assert result["music_assistant"]["authenticated"] is True
     assert MA_TOKEN not in json.dumps(result)
@@ -110,6 +143,13 @@ async def test_queue_get(admin_ws: MockHAClientWebSocket, fake_ma: FakeMusicAssi
     assert [item["queue_item_id"] for item in result["items"]] == ["qi-1", "qi-2", "qi-3"]
     assert result["items"][0]["homeii_artwork_url"].startswith(ITEM_ARTWORK_PREFIX)
     assert fake_ma.commands_named("player_queues/items")
+    # The card uses this ordering metadata to reject stale responses that race a fresher one.
+    assert result["snapshot"]["domain"] == "queue"
+    first_epoch = result["snapshot"]["epoch"]
+    assert isinstance(first_epoch, str) and first_epoch
+    assert (await _result(admin_ws, "queue/get", entity_id=KITCHEN))["snapshot"]["epoch"] == (
+        first_epoch
+    )
 
 
 async def test_search_and_favorites(admin_ws: MockHAClientWebSocket) -> None:
@@ -124,6 +164,16 @@ async def test_library_get(admin_ws: MockHAClientWebSocket) -> None:
     """The library shelf for playlists is served over WebSocket."""
     result = await _result(admin_ws, "library/get", media_type="playlist")
     assert [item["name"] for item in result["items"]] == ["Morning Mix"]
+    assert result["snapshot"]["domain"] == "library"
+    assert isinstance(result["snapshot"]["epoch"], str) and result["snapshot"]["epoch"]
+
+
+async def test_library_get_radio_uses_the_plural_ma_command_path(
+    admin_ws: MockHAClientWebSocket,
+) -> None:
+    """Music Assistant 2.10's radio library command is music/radios/library_items."""
+    result = await _result(admin_ws, "library/get", media_type="radio")
+    assert [item["name"] for item in result["items"]] == ["Jazz FM"]
 
 
 def test_every_command_is_registered_under_its_name() -> None:
