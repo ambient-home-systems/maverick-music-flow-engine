@@ -337,9 +337,14 @@ Repository checks that do not need Home Assistant:
 ```sh
 python -B -m unittest discover -s tests
 python -B scripts/validate_repo.py
+python -m pip install ruff
+ruff check .
+ruff format --check .
 ```
 
 The preceding 0.7.21 source passed 52 regression tests and repository validation. Beta version labeling and package validation are checked separately; a passed unit suite does not certify every home installation. Runtime/state, MA transport, queue validation and Sendspin are separate responsibilities in the source, although `runtime.py` still needs further focused modularization.
+
+`.github/workflows/validate.yml` runs all of the above on every push and pull request, plus [`home-assistant/actions/hassfest`](https://github.com/home-assistant/actions) (Home Assistant's own manifest, translation and integration-structure checks) and [`hacs/action`](https://github.com/hacs/action) (HACS's repository checks). A `mypy` job also runs but does not block merges yet: the codebase has no prior type-checking baseline, and plain `mypy` cannot see through `voluptuous`'s schema-building style without a dedicated plugin.
 
 ## Identity and credits
 
