@@ -160,6 +160,27 @@
         "data": {
           "id": "Schedule"
         }
+      },
+      "add_timer": {
+        "title": "Add timer",
+        "description": "Create a one-shot timer that the Engine runs even when the dashboard is closed.",
+        "data": {
+          "id": "Timer ID",
+          "player": "Music Assistant player",
+          "action": "Action",
+          "minutes": "Minutes",
+          "enabled": "Enabled"
+        },
+        "data_description": {
+          "id": "Optional stable ID. Leave empty to use one timer per player/profile.",
+          "minutes": "Minutes from now until the timer fires."
+        }
+      },
+      "delete_timer": {
+        "title": "Delete timer",
+        "data": {
+          "id": "Timer"
+        }
       }
     },
     "error": {
@@ -174,6 +195,7 @@
       "no_music_assistant_players": "No Music Assistant players were detected.",
       "no_volume_rules": "No volume rules are configured.",
       "no_schedules": "No schedules are configured.",
+      "no_timers": "No timers are configured.",
       "schedule_run_failed": "The selected schedule was found but playback failed. Check the integration diagnostics for the last schedule action.",
       "invalid_days": "Days must be comma separated numbers from 0 to 6, where Sunday is 0.",
       "ma_ingress_url": "This is a Home Assistant dashboard/Ingress address, not the Music Assistant API. Enter the direct MA server address, usually http://YOUR-MA-IP:8095. Opening MA from the HA sidebar does not give you its API address."
