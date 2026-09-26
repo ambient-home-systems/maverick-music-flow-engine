@@ -262,9 +262,7 @@ def _looks_like_media_item(value: Any) -> bool:
         return True
     if keys & {"name", "title", "media_title", "label"} and keys & MEDIA_ITEM_MARKER_KEYS:
         return True
-    if isinstance(value.get("media_item"), dict):
-        return True
-    return False
+    return bool(isinstance(value.get("media_item"), dict))
 
 
 def _extract_media_items(value: Any) -> list[dict[str, Any]]:
@@ -1297,14 +1295,17 @@ class HomeiiFlowRuntime:
         if clean.startswith("/api/maverick_music_flow/artwork/"):
             return ""
         key_lower = key.lower()
-        if len(clean) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in clean):
-            if (
+        if (
+            len(clean) == 64
+            and all(ch in "0123456789abcdefABCDEF" for ch in clean)
+            and (
                 "proxy" in key_lower
                 or "image" in key_lower
                 or "art" in key_lower
                 or "thumb" in key_lower
-            ):
-                return f"/imageproxy/{clean}"
+            )
+        ):
+            return f"/imageproxy/{clean}"
         if clean.startswith("imageproxy"):
             return f"/{clean}"
         if clean.startswith(("/imageproxy", "/api/media_player_proxy", "http://", "https://")):
@@ -6097,7 +6098,6 @@ class HomeiiFlowRuntime:
                     and foreground_task.done()
                 ):
                     self._queue_inflight.pop(cache_key, None)
-        attempts: list[dict[str, Any]] = []
         bridge_results = await self._try_music_queue_command_bridge(
             entity_id=entity_id,
             queue_id=queue_id,
@@ -7027,7 +7027,7 @@ class HomeiiFlowRuntime:
     def _preferred_announcement_say_service(self) -> str:
         """Return a usable legacy tts *_say service when tts.speak is not configured."""
         services = self.hass.services.async_services().get("tts", {})
-        names = [str(name) for name in services.keys()]
+        names = [str(name) for name in services]
         if "google_translate_say" in names:
             return "google_translate_say"
         return next((name for name in names if name.endswith("_say")), "")

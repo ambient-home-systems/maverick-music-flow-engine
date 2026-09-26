@@ -138,7 +138,7 @@ def handler_commands() -> dict[str, str]:
             ):
                 continue
             schema = decorator.args[0]
-            for key, value in zip(schema.keys, schema.values):
+            for key, value in zip(schema.keys, schema.values, strict=True):
                 if (
                     isinstance(key, ast.Call)
                     and ast.unparse(key.func).endswith("Required")
@@ -1053,8 +1053,7 @@ class ServiceGuardTests(IsolatedAsyncioTestCase):
     async def test_guarded_registration_runs_the_check_before_the_handler(self):
         handler = AsyncMock()
         self.register(self.hass, "play_media", handler, schema="schema")
-        name, args, kwargs = (
-            self.hass.services.async_register.call_args_list[0][0][0],
+        args, kwargs = (
             self.hass.services.async_register.call_args.args,
             self.hass.services.async_register.call_args.kwargs,
         )

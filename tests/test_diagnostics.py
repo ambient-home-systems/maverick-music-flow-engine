@@ -163,7 +163,7 @@ def _string_list(tree: ast.AST, dict_key: str) -> list[str]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Dict):
             continue
-        for key, value in zip(node.keys, node.values):
+        for key, value in zip(node.keys, node.values, strict=True):
             if (
                 isinstance(key, ast.Constant)
                 and key.value == dict_key
