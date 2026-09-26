@@ -39,6 +39,9 @@ MANAGEMENT_ADMIN_REQUIRED = (
     "Administrator access is required to manage schedules, timers and volume rules"
 )
 TARGET_REQUIRED = "A target player is required"
+# Unclassified requests (for example a Music Assistant command outside the allowlist)
+# are refused for everyone, administrators included.
+NOT_ALLOWED = "This command is not allowed"
 
 # Every WebSocket command the Engine registers, by its name without the domain prefix.
 # Commands whose level depends on the payload carry their least privileged level here;
@@ -425,7 +428,7 @@ def access_denial(
         if not management_allowed:
             return AccessDenial(MANAGEMENT_ADMIN_REQUIRED)
     elif level != ACCESS_CONTROL:
-        return AccessDenial(ADMIN_REQUIRED)
+        return AccessDenial(NOT_ALLOWED)
     clean_targets = _unique(clean for clean in (_clean(target) for target in targets) if clean)
     if require_target and not clean_targets and not is_admin:
         return AccessDenial(TARGET_REQUIRED)

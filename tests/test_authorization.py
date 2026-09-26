@@ -516,9 +516,13 @@ class AccessDenialTests(TestCase):
         self.assertIsNone(self.denial(MANAGE, is_admin=True, targets=[BEDROOM]))
 
     def test_unknown_levels_are_refused_even_for_admins(self):
-        self.assertIsNotNone(self.denial("", is_admin=True))
-        self.assertIsNotNone(self.denial("owner", is_admin=True))
-        self.assertIsNotNone(self.denial(None, is_admin=True))
+        for level in ("", "owner", None):
+            for is_admin in (True, False):
+                with self.subTest(level=level, is_admin=is_admin):
+                    # Nobody may run it, so the reason must not ask for admin access.
+                    self.assertEqual(
+                        self.denial(level, is_admin=is_admin).reason, AUTH.NOT_ALLOWED
+                    )
 
 
 class WebsocketReadTests(IsolatedAsyncioTestCase):

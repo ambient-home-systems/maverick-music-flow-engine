@@ -155,6 +155,8 @@ async def test_ma_command_bridge(
         response = await _command(admin_ws, "ma/command", command=command, args={})
         assert not response["success"], command
         assert response["error"]["code"] == "unauthorized"
+        # An administrator is refused too, so the reason must not ask for admin access.
+        assert response["error"]["message"] == "This command is not allowed"
     assert not any(
         name.startswith(("config/", "providers/", "auth/")) for name, _ in fake_ma.commands
     )
