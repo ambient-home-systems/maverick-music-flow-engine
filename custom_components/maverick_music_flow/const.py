@@ -28,6 +28,9 @@ STORAGE_VERSION = 1
 MEDIA_CACHE_STORAGE_KEY = f"{DOMAIN}.media_cache"
 MEDIA_CACHE_STORAGE_VERSION = 2
 
+# Returned by views and WebSocket commands while no config entry is loaded.
+NOT_LOADED_MESSAGE = "HOMEii Flow Engine is not loaded"
+
 EVENT_ENGINE_ANNOUNCEMENT = f"{DOMAIN}_announcement"
 EVENT_ENGINE_GROUP_APPLY = f"{DOMAIN}_group_apply"
 EVENT_MUSIC_ASSISTANT = f"{DOMAIN}_music_assistant_event"

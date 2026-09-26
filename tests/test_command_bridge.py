@@ -280,6 +280,7 @@ def load_runtime_command_method():
         "_finish_media_command_refresh",
         "_async_validate_media_reference",
         "local_media_urls_allowed",
+        "async_create_tracked_task",
     }
     cls.body = [
         n
@@ -317,8 +318,10 @@ class RuntimeCommandTests(IsolatedAsyncioTestCase):
     def runtime(self):
         runtime = Runtime()
         runtime.hass = SimpleNamespace(
-            async_create_task=lambda coro: asyncio.get_running_loop().create_task(coro)
+            async_create_task=lambda coro, name=None: asyncio.get_running_loop().create_task(coro, name=name)
         )
+        runtime._active = True
+        runtime._background_tasks = set()
         runtime._music_assistant_client = SimpleNamespace(
             snapshot=lambda: {"authenticated": True, "schema_supported": True, "connected": True},
             async_command=AsyncMock(return_value={"name": "fresh"}),
@@ -438,6 +441,10 @@ class Forbidden(HTTPError):
     pass
 
 
+class ServiceUnavailable(HTTPError):
+    pass
+
+
 class AdminUser:
     """An administrator with Home Assistant's default policy (every entity allowed)."""
 
@@ -459,6 +466,7 @@ class FakeRequest(dict):
 class FakeRuntime:
     def __init__(self):
         self.calls: list[tuple[str, Any]] = []
+        self.active = True
 
     def _record(self, name, payload):
         self.calls.append((name, payload))
@@ -510,8 +518,10 @@ def load_command_view(runtime):
             HTTPNotFound=NotFound,
             HTTPBadRequest=BadRequest,
             HTTPForbidden=Forbidden,
+            HTTPServiceUnavailable=ServiceUnavailable,
             json_response=lambda result: {"json": result},
         ),
+        "NOT_LOADED_MESSAGE": "HOMEii Flow Engine is not loaded",
         "HTTP_COMMAND_SCHEMAS": BRIDGE.HTTP_COMMAND_SCHEMAS,
         "music_assistant_command_allowed": allowed,
         "strip_internal_keys": BRIDGE.strip_internal_keys,
@@ -542,6 +552,13 @@ class CommandViewTests(IsolatedAsyncioTestCase):
 
     async def post(self, command, body):
         return await self.view.post(FakeRequest(body), command)
+
+    async def test_view_returns_503_while_no_entry_is_loaded(self):
+        self.runtime.active = False
+        for command, body in (("get_context", {}), ("ma/command", {"command": "players/all"}), ("unknown", {})):
+            with self.subTest(command=command), self.assertRaises(ServiceUnavailable):
+                await self.post(command, body)
+        self.assertEqual(self.runtime.calls, [])
 
     async def test_http_view_serves_exactly_the_documented_commands(self):
         self.assertEqual(

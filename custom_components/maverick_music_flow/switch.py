@@ -364,7 +364,9 @@ class HomeiiFlowScheduleSwitch(SwitchEntity):
             run_key = self._runtime._schedule_run_key(schedule, due_at)
             schedule_key = self._runtime._schedule_storage_key(schedule)
             if self._runtime._last_schedule_runs.get(schedule_key) != run_key:
-                self.hass.async_create_task(self._async_fire(due_at, "switch_catchup"))
+                self._runtime.async_create_tracked_task(
+                    self._async_fire(due_at, "switch_catchup"), "maverick_music_flow_schedule_switch"
+                )
                 return
             now = now + timedelta(seconds=121)
 
@@ -376,7 +378,9 @@ class HomeiiFlowScheduleSwitch(SwitchEntity):
 
         @callback
         def timer_finished(now_value: datetime) -> None:
-            self.hass.async_create_task(self._async_fire(_local_datetime(now_value), "switch_timer"))
+            self._runtime.async_create_tracked_task(
+                self._async_fire(_local_datetime(now_value), "switch_timer"), "maverick_music_flow_schedule_switch"
+            )
 
         self._timer_unsub = async_track_point_in_time(self.hass, timer_finished, run_at.astimezone(UTC))
 
@@ -434,7 +438,9 @@ class HomeiiFlowScheduleSwitch(SwitchEntity):
             await self._runtime.async_set_schedule(payload)
         self._reschedule()
         self.async_write_ha_state()
-        self._runtime.hass.async_create_task(self._runtime.async_tick_orchestration(trigger="schedule_switch"))
+        self._runtime.async_create_tracked_task(
+            self._runtime.async_tick_orchestration(trigger="schedule_switch"), "maverick_music_flow_tick"
+        )
 
 
 class HomeiiFlowTimerSwitch(SwitchEntity):
@@ -592,12 +598,16 @@ class HomeiiFlowTimerSwitch(SwitchEntity):
             return
         now_utc = datetime.now(UTC)
         if ends_at <= now_utc:
-            self.hass.async_create_task(self._async_fire(ends_at, "timer_switch_catchup"))
+            self._runtime.async_create_tracked_task(
+                self._async_fire(ends_at, "timer_switch_catchup"), "maverick_music_flow_timer_switch"
+            )
             return
 
         @callback
         def timer_finished(now_value: datetime) -> None:
-            self.hass.async_create_task(self._async_fire(now_value.astimezone(UTC), "timer_switch"))
+            self._runtime.async_create_tracked_task(
+                self._async_fire(now_value.astimezone(UTC), "timer_switch"), "maverick_music_flow_timer_switch"
+            )
 
         self._timer_unsub = async_track_point_in_time(self.hass, timer_finished, ends_at)
 

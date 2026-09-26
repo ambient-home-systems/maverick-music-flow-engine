@@ -164,5 +164,10 @@
       "invalid_days": "Days must be comma separated numbers from 0 to 6, where Sunday is 0.",
       "ma_ingress_url": "This is a Home Assistant dashboard/Ingress address, not the Music Assistant API. Enter the direct MA server address, usually http://YOUR-MA-IP:8095. Opening MA from the HA sidebar does not give you its API address."
     }
+  },
+  "exceptions": {
+    "not_loaded": {
+      "message": "HOMEii Flow Engine is not loaded. Enable or add the integration, then try again."
+    }
   }
 }

@@ -180,6 +180,7 @@ class FakeRuntime:
         self.calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
         self.stored = {"schedules": [], "timers": [], "volume_rules": []}
         self._storage: dict[str, Any] = {}
+        self.active = True
         self.async_save = AsyncMock()
         self.artwork_lighting = SimpleNamespace(
             snapshot=lambda: {"assignments": []},
@@ -716,8 +717,10 @@ def load_command_view(runtime):
             HTTPNotFound=type("NotFound", (HTTPError,), {}),
             HTTPBadRequest=type("BadRequest", (HTTPError,), {}),
             HTTPForbidden=type("Forbidden", (HTTPError,), {}),
+            HTTPServiceUnavailable=type("ServiceUnavailable", (HTTPError,), {}),
             json_response=lambda result: {"json": result},
         ),
+        "NOT_LOADED_MESSAGE": "HOMEii Flow Engine is not loaded",
         "HTTP_COMMAND_SCHEMAS": bridge.HTTP_COMMAND_SCHEMAS,
         "music_assistant_command_allowed": bridge.music_assistant_command_allowed,
         "strip_internal_keys": bridge.strip_internal_keys,
@@ -799,10 +802,14 @@ class FakeUnknownUser(FakeUnauthorized):
     pass
 
 
+class FakeServiceValidationError(FakeUnauthorized):
+    pass
+
+
 def load_service_guard(runtime):
     source = COMPONENT / "__init__.py"
     tree = ast.parse(source.read_text(encoding="utf-8"))
-    wanted = {"_async_check_service_access", "_async_register_guarded_service"}
+    wanted = {"_async_check_service_access", "_async_register_guarded_service", "_async_require_loaded"}
     nodes = [n for n in tree.body if isinstance(n, ast.AsyncFunctionDef | ast.FunctionDef) and n.name in wanted]
     ns: dict[str, Any] = {
         "Any": Any,
@@ -812,6 +819,7 @@ def load_service_guard(runtime):
         "DOMAIN": "maverick_music_flow",
         "Unauthorized": FakeUnauthorized,
         "UnknownUser": FakeUnknownUser,
+        "ServiceValidationError": FakeServiceValidationError,
         "POLICY_CONTROL": POLICY_CONTROL,
         "async_get_runtime": lambda _hass: runtime,
         "CONF_PROFILE_ID": "profile_id",
@@ -839,6 +847,7 @@ class ServiceGuardTests(IsolatedAsyncioTestCase):
         self.hass = SimpleNamespace(
             auth=SimpleNamespace(async_get_user=AsyncMock(side_effect=lambda user_id: self.users.get(user_id))),
             services=SimpleNamespace(has_service=lambda *_a: False, async_register=Mock()),
+            data={"maverick_music_flow": {"runtime": self.runtime}},
         )
 
     def call(self, user_id, **data):
@@ -917,6 +926,49 @@ class ServiceGuardTests(IsolatedAsyncioTestCase):
         self.hass.services.has_service = lambda *_a: True
         self.register(self.hass, "play_media", handler)
         self.assertEqual(self.hass.services.async_register.call_count, 1)
+
+    async def test_services_refuse_while_no_entry_is_loaded(self):
+        handler = AsyncMock()
+        self.register(self.hass, "play_media", handler)
+        guarded = self.hass.services.async_register.call_args.args[2]
+        admin = self.user(is_admin=True)
+        self.runtime.active = False
+        loaded_data = self.hass.data
+        for data in ({}, loaded_data):  # no entry set up yet, or the last entry unloaded
+            self.hass.data = data
+            for user_id in (admin.id, None):
+                with self.subTest(data=data, user=user_id):
+                    with self.assertRaises(FakeServiceValidationError) as caught:
+                        await guarded(self.call(user_id, player=KITCHEN, media_id="x"))
+                    self.assertEqual(caught.exception.kwargs["translation_key"], "not_loaded")
+        handler.assert_not_awaited()
+        self.hass.auth.async_get_user.assert_not_awaited()
+        self.runtime.active = True
+        await guarded(self.call(admin.id, player=KITCHEN, media_id="x"))
+        handler.assert_awaited_once()
+
+    def test_queue_settings_action_checks_the_entry_is_loaded(self):
+        source = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
+        handler = next(
+            node for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "set_queue_settings"
+        )
+        self.assertEqual(ast.unparse(handler.body[0]), "_async_require_loaded(hass)")
+
+
+class NotLoadedWebSocketTests(IsolatedAsyncioTestCase):
+    async def test_every_command_is_refused_while_no_entry_is_loaded(self):
+        messages = {**READ_MESSAGES, **CONTROL_MESSAGES, **MANAGE_MESSAGES, **ADMIN_MESSAGES}
+        self.assertEqual({PREFIX + command for command in messages}, set(HANDLERS))
+        admin = FakeUser(is_admin=True)
+        for command, msg in messages.items():
+            with self.subTest(command=command):
+                runtime = FakeRuntime()
+                runtime.active = False
+                connection, runtime = await run(command, msg, admin, runtime)
+                self.assertEqual(connection.outcome, ("error", "not_loaded"))
+                self.assertEqual(runtime.calls, [])
+                connection.send_result.assert_not_called()
 
 
 def load_runtime_helpers():

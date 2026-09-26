@@ -38,6 +38,7 @@ class ArtworkLighting:
         self.hass = runtime.hass
         self._unsub = None
         self._interval = None
+        self._stop_unsub = None
         self._tasks = {}
         self._last = {}
         self._attempt = {}
@@ -50,15 +51,20 @@ class ArtworkLighting:
     def start(self):
         if self._interval is None:
             self._interval = async_track_time_interval(self.hass, self._tick, timedelta(seconds=10))
-            @callback
-            def on_stop(_):
-                self.stop()
-            self.hass.bus.async_listen_once("homeassistant_stop", on_stop)
+            self._stop_unsub = self.hass.bus.async_listen_once("homeassistant_stop", self._on_hass_stop)
         self._subscribe()
         self._tick(None)
 
     @callback
+    def _on_hass_stop(self, _event):
+        self._stop_unsub = None  # Home Assistant removes a one-time listener when it fires.
+        self.stop()
+
+    @callback
     def stop(self):
+        if self._stop_unsub:
+            self._stop_unsub()
+            self._stop_unsub = None
         if self._unsub:
             self._unsub()
             self._unsub = None
@@ -91,7 +97,7 @@ class ArtworkLighting:
     def _schedule(self, player):
         if player in self._tasks and not self._tasks[player].done():
             return
-        self._tasks[player] = self.hass.async_create_task(self._apply(player))
+        self._tasks[player] = self.runtime.async_create_tracked_task(self._apply(player), "maverick_music_flow_artwork_lighting")
 
     async def configure(self, payload):
         player = str(payload.get("player") or "").strip()

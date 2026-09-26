@@ -30,11 +30,14 @@ from .command_bridge import (
     SEARCH_GET_FIELDS,
     strip_internal_keys,
 )
-from .const import CONF_INSTANCE_ID, CONF_PROFILE_ID, DEFAULT_PROFILE_ID, DOMAIN
+from .const import CONF_INSTANCE_ID, CONF_PROFILE_ID, DEFAULT_PROFILE_ID, DOMAIN, NOT_LOADED_MESSAGE
 from .runtime import HomeiiFlowRuntime
 from .radio_directory import search_stations
 from .saved_playlists import list_playlists, save_playlist, play_playlist, delete_playlist
 from .interface_preferences import read_preferences, save_preferences, read_wheel_preferences, save_wheel_preferences
+
+# Commands stay registered after the last config entry unloads; they answer with this.
+ERR_NOT_LOADED = "not_loaded"
 
 
 def _runtime(hass: HomeAssistant) -> HomeiiFlowRuntime:
@@ -51,13 +54,17 @@ def _command_payload(msg: dict[str, Any]) -> dict[str, Any]:
 
 
 def _authorize(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]) -> bool:
-    """Return whether the connected user may run msg; send ERR_UNAUTHORIZED otherwise.
+    """Return whether the connected user may run msg; send an error otherwise.
 
-    Every handler calls this first. The level comes from the authorization tables, so an
+    Every handler calls this first. While no config entry is loaded every command is
+    refused with ERR_NOT_LOADED. The level comes from the authorization tables, so an
     unclassified command is refused. Player targets are mapped to their media_player
     entity and checked against the user's Home Assistant entity permissions.
     """
     runtime = _runtime(hass)
+    if not runtime.active:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, NOT_LOADED_MESSAGE)
+        return False
     payload = _command_payload(msg)
     name = command_name(msg["type"])
     level = websocket_access_level(msg["type"], payload)
