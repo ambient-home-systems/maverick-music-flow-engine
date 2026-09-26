@@ -35,6 +35,7 @@ async def async_setup_entry(
     """Set up HOMEii Flow Engine number entities."""
     runtime = async_get_runtime(hass)
     profile_id = _profile_id(entry)
+    registry = async_get_entity_registry(hass)
     known_volume_rules: dict[str, HomeiiFlowVolumeRuleNumber] = {}
     async_add_entities([HomeiiFlowScreensaverTimeoutNumber(runtime, entry, profile_id)])
 
@@ -49,7 +50,10 @@ async def async_setup_entry(
             key = _volume_rule_key(rule, profile_id)
             current_keys.add(key)
             if key in known_volume_rules:
-                continue
+                unique_id = f"{entry.entry_id}_volume_rule_max_{player}"
+                if registry.async_get_entity_id("number", DOMAIN, unique_id) is not None:
+                    continue
+                known_volume_rules.pop(key, None)
             entity = HomeiiFlowVolumeRuleNumber(runtime, entry, profile_id, player)
             known_volume_rules[key] = entity
             entities.append(entity)
@@ -74,6 +78,9 @@ def _remove_stale_registry_entries(
     prefix = f"{entry.entry_id}_volume_rule_max_"
     for registry_entry in list(registry.entities.values()):
         if getattr(registry_entry, "config_entry_id", None) != entry.entry_id:
+            continue
+        entity_id = str(getattr(registry_entry, "entity_id", "") or "")
+        if entity_id.split(".", 1)[0] != "number":
             continue
         unique_id = str(getattr(registry_entry, "unique_id", "") or "")
         if not unique_id.startswith(prefix):
