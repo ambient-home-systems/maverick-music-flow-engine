@@ -17,7 +17,11 @@ from conftest import (
     engine_runtime,
 )
 from homeassistant.core import Context, HomeAssistant
-from homeassistant.exceptions import ServiceValidationError, Unauthorized
+from homeassistant.exceptions import (
+    HomeAssistantError,
+    ServiceValidationError,
+    Unauthorized,
+)
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     MockUser,
@@ -185,6 +189,24 @@ async def test_announce_text_uses_tts(hass: HomeAssistant, loaded_entry: MockCon
         (KITCHEN, "Dinner is ready"),
         (BEDROOM, "Dinner is ready"),
     ]
+
+
+async def test_announce_without_tts_is_a_clear_error(
+    hass: HomeAssistant, loaded_entry: MockConfigEntry
+) -> None:
+    """With no TTS available the action fails with a Home Assistant error, not a crash."""
+    with pytest.raises(HomeAssistantError, match="No compatible TTS service"):
+        await _call(hass, "announce", {"message": "Dinner is ready", "player": KITCHEN})
+    # The failed attempt is still recorded.
+    assert engine_runtime(hass).announcement_count("default") == 1
+
+
+async def test_announce_without_a_player_is_a_validation_error(
+    hass: HomeAssistant, loaded_entry: MockConfigEntry
+) -> None:
+    """Leaving out every target player is reported as invalid input."""
+    with pytest.raises(ServiceValidationError, match="at least one target player"):
+        await _call(hass, "announce", {"message": "Dinner is ready"})
 
 
 async def test_announce_refuses_local_network_urls(
