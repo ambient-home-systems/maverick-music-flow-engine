@@ -134,6 +134,15 @@ def _module(name: str, **attrs: Any) -> types.ModuleType:
     return module
 
 
+def _restore_modules(saved: dict[str, types.ModuleType | None]) -> None:
+    """Put back the sys.modules entries that the stand-ins temporarily replaced."""
+    for name, module in saved.items():
+        if module is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
+
+
 def _passthrough(func):
     return func
 
@@ -261,8 +270,10 @@ def load_package() -> types.ModuleType:
     """Import the integration package with Home Assistant and aiohttp stand-ins."""
     if PACKAGE in sys.modules:
         return sys.modules[PACKAGE]
-    installed = [name for name in _STUBS if name not in sys.modules]
-    sys.modules.update({name: _STUBS[name] for name in installed})
+    # Always import against the stand-ins, even when pytest has already loaded the real
+    # Home Assistant and aiohttp, then put back whatever was there before.
+    saved = {name: sys.modules.get(name) for name in _STUBS}
+    sys.modules.update(_STUBS)
     try:
         spec = importlib.util.spec_from_file_location(
             PACKAGE, COMPONENT / "__init__.py", submodule_search_locations=[str(COMPONENT)]
@@ -271,8 +282,7 @@ def load_package() -> types.ModuleType:
         sys.modules[PACKAGE] = package
         spec.loader.exec_module(package)
     finally:
-        for name in installed:
-            sys.modules.pop(name, None)
+        _restore_modules(saved)
     return package
 
 

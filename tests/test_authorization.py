@@ -37,6 +37,15 @@ def _module(name: str, **attrs: Any) -> types.ModuleType:
     return module
 
 
+def _restore_modules(saved: dict[str, types.ModuleType | None]) -> None:
+    """Put back the sys.modules entries that the stand-ins temporarily replaced."""
+    for name, module in saved.items():
+        if module is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
+
+
 def _fake_async_redact_data(data: Any, to_redact: Any) -> Any:
     """Stand-in for homeassistant.components.diagnostics.async_redact_data."""
     if isinstance(data, dict):
@@ -99,15 +108,15 @@ def load_package_modules():
         f"{PACKAGE}.radio_directory",
         search_stations=AsyncMock(return_value={"items": []}),
     )
+    # Always import against the stand-ins, even when pytest has already loaded the real
+    # Home Assistant, then put back whatever was there before.
     saved = {name: sys.modules.get(name) for name in _HA_STUBS}
-    installed = {name for name, module in saved.items() if module is None}
-    sys.modules.update({name: module for name, module in _HA_STUBS.items() if name in installed})
+    sys.modules.update(_HA_STUBS)
     try:
         authorization = importlib.import_module(f"{PACKAGE}.authorization")
         websocket_api = importlib.import_module(f"{PACKAGE}.websocket_api")
     finally:
-        for name in installed:
-            sys.modules.pop(name, None)
+        _restore_modules(saved)
     return authorization, websocket_api
 
 

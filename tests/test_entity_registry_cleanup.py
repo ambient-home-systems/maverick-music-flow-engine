@@ -30,6 +30,15 @@ def _module(name: str, **attrs: Any) -> types.ModuleType:
     return module
 
 
+def _restore_modules(saved: dict[str, types.ModuleType | None]) -> None:
+    """Put back the sys.modules entries that the stand-ins temporarily replaced."""
+    for name, module in saved.items():
+        if module is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
+
+
 class FakeRegistryEntry(SimpleNamespace):
     """Stand-in for homeassistant.helpers.entity_registry.RegistryEntry."""
 
@@ -124,15 +133,15 @@ def _load(registry: FakeEntityRegistry):
     _HA_STUBS["homeassistant.helpers.entity_registry"] = _module(
         "homeassistant.helpers.entity_registry", async_get=lambda hass: registry
     )
+    # Always import against the stand-ins, even when pytest has already loaded the real
+    # Home Assistant, then put back whatever was there before.
     saved = {name: sys.modules.get(name) for name in _HA_STUBS}
-    installed = {name for name, module in saved.items() if module is None}
-    sys.modules.update({name: module for name, module in _HA_STUBS.items() if name in installed})
+    sys.modules.update(_HA_STUBS)
     try:
         switch = importlib.import_module(f"{PACKAGE}.switch")
         number = importlib.import_module(f"{PACKAGE}.number")
     finally:
-        for name in installed:
-            sys.modules.pop(name, None)
+        _restore_modules(saved)
     return switch, number
 
 
