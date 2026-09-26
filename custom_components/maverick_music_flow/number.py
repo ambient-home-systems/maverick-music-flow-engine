@@ -9,17 +9,28 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 
 from . import async_get_runtime
-from .const import CONF_INSTANCE_ID, CONF_PROFILE_ID, DEFAULT_INSTANCE_ID, DEFAULT_PROFILE_ID, DOMAIN, NAME, SIGNAL_ENGINE_UPDATED, VERSION
+from .const import (
+    CONF_INSTANCE_ID,
+    CONF_PROFILE_ID,
+    DEFAULT_INSTANCE_ID,
+    DEFAULT_PROFILE_ID,
+    DOMAIN,
+    NAME,
+    SIGNAL_ENGINE_UPDATED,
+    VERSION,
+)
 from .runtime import HomeiiFlowRuntime
 
 
 def _profile_id(entry: ConfigEntry) -> str:
     """Return the active profile id for a config entry."""
-    return str(entry.options.get(CONF_PROFILE_ID) or entry.data.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID)
+    return str(
+        entry.options.get(CONF_PROFILE_ID) or entry.data.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID
+    )
 
 
 def _volume_rule_key(rule: dict[str, Any], profile_id: str) -> str:
@@ -132,7 +143,9 @@ class HomeiiFlowVolumeRuleNumber(NumberEntity):
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to Engine updates."""
-        self.async_on_remove(async_dispatcher_connect(self.hass, SIGNAL_ENGINE_UPDATED, self._handle_engine_update))
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ENGINE_UPDATED, self._handle_engine_update)
+        )
 
     def remove_from_registry(self) -> None:
         """Remove this number from Home Assistant's entity registry."""
@@ -162,7 +175,11 @@ class HomeiiFlowVolumeRuleNumber(NumberEntity):
     def name(self) -> str | None:
         """Return the number name."""
         state = self.hass.states.get(self._player)
-        player_name = str((state.attributes or {}).get("friendly_name") or self._player) if state else self._player
+        player_name = (
+            str((state.attributes or {}).get("friendly_name") or self._player)
+            if state
+            else self._player
+        )
         return f"Max volume: {player_name}"
 
     @property
@@ -240,7 +257,9 @@ class HomeiiFlowScreensaverTimeoutNumber(NumberEntity):
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to Engine updates."""
-        self.async_on_remove(async_dispatcher_connect(self.hass, SIGNAL_ENGINE_UPDATED, self.async_write_ha_state))
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ENGINE_UPDATED, self.async_write_ha_state)
+        )
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -259,7 +278,9 @@ class HomeiiFlowScreensaverTimeoutNumber(NumberEntity):
     @property
     def native_value(self) -> float | None:
         """Return the current idle timeout in seconds."""
-        return float(self._runtime.screensaver_config(self._profile_id).get("timeout_seconds") or 90)
+        return float(
+            self._runtime.screensaver_config(self._profile_id).get("timeout_seconds") or 90
+        )
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

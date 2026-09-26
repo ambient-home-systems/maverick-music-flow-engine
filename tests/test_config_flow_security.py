@@ -52,8 +52,15 @@ class TextSelector:
 
 
 class FlowBase:
-    def async_show_form(self, *, step_id, data_schema=None, errors=None, description_placeholders=None):
-        return {"type": "form", "step_id": step_id, "data_schema": data_schema, "errors": errors or {}}
+    def async_show_form(
+        self, *, step_id, data_schema=None, errors=None, description_placeholders=None
+    ):
+        return {
+            "type": "form",
+            "step_id": step_id,
+            "data_schema": data_schema,
+            "errors": errors or {},
+        }
 
     def async_create_entry(self, *, title, data, options=None):
         return {"type": "create_entry", "title": title, "data": data, "options": options}
@@ -214,7 +221,10 @@ class AutomaticSetupTests(FlowTestCase):
         self.create_token.assert_not_awaited()
 
     async def test_invalid_url_is_rejected_before_contacting_ma(self):
-        for url, error in (("http://user:pw@ma.test:8095", "invalid_url"), ("http://ha:8123/api/hassio_ingress/x/", "ma_ingress_url")):
+        for url, error in (
+            ("http://user:pw@ma.test:8095", "invalid_url"),
+            ("http://ha:8123/api/hassio_ingress/x/", "ma_ingress_url"),
+        ):
             _flow, result = await self.automatic_login(url)
             self.assertEqual(result["errors"], {URL: error})
         self.check_server.assert_not_awaited()
@@ -228,13 +238,17 @@ class AutomaticSetupTests(FlowTestCase):
 
     async def test_http_setup_is_still_allowed(self):
         flow, _result = await self.automatic_login("http://ma.test:8095")
-        result = await flow.async_step_automatic_login_http({"username": "user", "password": "secret"})
+        result = await flow.async_step_automatic_login_http(
+            {"username": "user", "password": "secret"}
+        )
         self.assertEqual(result["type"], "create_entry")
         self.assertEqual(result["data"][TOKEN], "dedicated-token")
         self.assertEqual(result["data"][URL], "http://ma.test:8095")
         self.assertNotIn(TOKEN, result["options"])
         self.assertNotIn("password", str(result))
-        self.create_token.assert_awaited_once_with(self.hass.session, "http://ma.test:8095", "user", "secret")
+        self.create_token.assert_awaited_once_with(
+            self.hass.session, "http://ma.test:8095", "user", "secret"
+        )
         self.revoke_token.assert_not_awaited()
 
     async def test_failed_validation_after_token_creation_revokes_the_token(self):
@@ -243,8 +257,12 @@ class AutomaticSetupTests(FlowTestCase):
         result = await flow.async_step_automatic_login({"username": "user", "password": "secret"})
         self.assertEqual(result["type"], "form")
         self.assertEqual(result["errors"], {"base": "invalid_auth"})
-        self.check_api.assert_awaited_once_with(self.hass, "https://ma.test:8095", "dedicated-token")
-        self.revoke_token.assert_awaited_once_with(self.hass.session, "https://ma.test:8095", "dedicated-token")
+        self.check_api.assert_awaited_once_with(
+            self.hass, "https://ma.test:8095", "dedicated-token"
+        )
+        self.revoke_token.assert_awaited_once_with(
+            self.hass.session, "https://ma.test:8095", "dedicated-token"
+        )
 
     async def test_each_failed_retry_revokes_its_own_token(self):
         self.check_api.return_value = "cannot_connect"
@@ -252,14 +270,18 @@ class AutomaticSetupTests(FlowTestCase):
         for token in ("first", "second"):
             self.create_token.return_value = token
             await flow.async_step_automatic_login_http({"username": "user", "password": "secret"})
-        self.assertEqual([call.args[2] for call in self.revoke_token.await_args_list], ["first", "second"])
+        self.assertEqual(
+            [call.args[2] for call in self.revoke_token.await_args_list], ["first", "second"]
+        )
 
     async def test_unrevokable_token_still_reports_the_setup_error(self):
         self.check_api.return_value = "invalid_response"
         self.revoke_token.return_value = False
         flow, _result = await self.automatic_login()
         with self.assertLogs(CF._LOGGER, "WARNING") as logs:
-            result = await flow.async_step_automatic_login_http({"username": "user", "password": "secret"})
+            result = await flow.async_step_automatic_login_http(
+                {"username": "user", "password": "secret"}
+            )
         self.assertEqual(result["errors"], {"base": "invalid_response"})
         self.assertNotIn("dedicated-token", "".join(logs.output))
 
@@ -268,7 +290,9 @@ class AutomaticSetupTests(FlowTestCase):
         self.hass.configured_ids.add("default")
         with self.assertRaises(AbortFlow):
             await flow.async_step_automatic_login_http({"username": "user", "password": "secret"})
-        self.revoke_token.assert_awaited_once_with(self.hass.session, "http://ma.test:8095", "dedicated-token")
+        self.revoke_token.assert_awaited_once_with(
+            self.hass.session, "http://ma.test:8095", "dedicated-token"
+        )
 
     async def test_failed_sign_in_creates_nothing_to_revoke(self):
         self.create_token.side_effect = ValueError("automatic_login_failed")
@@ -314,7 +338,9 @@ class OptionsTokenTests(FlowTestCase):
         self.assertEqual(update.call_args.kwargs["options"], result["data"])
 
     async def test_blank_token_keeps_the_stored_token(self):
-        result = await self.options_flow().async_step_general({URL: "http://ma.test:8095", TOKEN: ""})
+        result = await self.options_flow().async_step_general(
+            {URL: "http://ma.test:8095", TOKEN: ""}
+        )
         self.assertEqual(result["type"], "create_entry")
         self.assertNotIn(TOKEN, result["data"])
         self.check_api.assert_awaited_once_with(self.hass, "http://ma.test:8095", "stored-token")
@@ -322,7 +348,9 @@ class OptionsTokenTests(FlowTestCase):
 
     async def test_invalid_new_token_is_not_saved(self):
         self.check_api.return_value = "invalid_auth"
-        result = await self.options_flow().async_step_general({URL: "http://ma.test:8095", TOKEN: "bad"})
+        result = await self.options_flow().async_step_general(
+            {URL: "http://ma.test:8095", TOKEN: "bad"}
+        )
         self.assertEqual(result["errors"], {"base": "invalid_auth"})
         self.hass.config_entries.async_update_entry.assert_not_called()
 

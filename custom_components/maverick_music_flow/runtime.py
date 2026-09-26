@@ -2,19 +2,12 @@
 
 from __future__ import annotations
 
-from .artwork_lighting import ArtworkLighting
-from .artwork_proxy import home_assistant_base_url, normalize_image_type
-from .queue_settings import async_queue_settings
-from .player_timing import playback_position_pair
-from .queue_controls import build_queue_switch, build_playback_speed
-
 import asyncio
 import copy
 import hashlib
 import logging
 import secrets
 import time
-
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -23,12 +16,11 @@ from urllib.parse import quote
 from uuid import uuid4
 
 from aiohttp import ClientError, ClientTimeout
-
 from homeassistant.components import tts
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_point_in_time,
@@ -39,12 +31,13 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from .artwork_lighting import ArtworkLighting
+from .artwork_proxy import home_assistant_base_url, normalize_image_type
 from .command_bridge import music_assistant_command_allowed
 from .const import (
     CAPABILITIES,
     DEFAULT_INSTANCE_ID,
     DEFAULT_PROFILE_ID,
-    DOMAIN,
     EVENT_ENGINE_ANNOUNCEMENT,
     EVENT_ENGINE_GROUP_APPLY,
     EVENT_MUSIC_ASSISTANT,
@@ -59,6 +52,9 @@ from .const import (
 from .exceptions import HomeiiFlowServiceUnavailable
 from .ma_client import MusicAssistantEventClient
 from .media_url_policy import async_validate_media_reference, command_media_references
+from .player_timing import playback_position_pair
+from .queue_controls import build_playback_speed, build_queue_switch
+from .queue_settings import async_queue_settings
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -288,7 +284,16 @@ def _extract_media_items(value: Any) -> list[dict[str, Any]]:
         return [value]
 
     best: list[dict[str, Any]] = []
-    for key in ("items", "media", "media_items", "library_items", "data", "result", "results", "response"):
+    for key in (
+        "items",
+        "media",
+        "media_items",
+        "library_items",
+        "data",
+        "result",
+        "results",
+        "response",
+    ):
         nested = value.get(key)
         items = _extract_media_items(nested)
         if len(items) > len(best):
@@ -346,19 +351,28 @@ def _media_item_name(item: dict[str, Any]) -> str:
 
 def _media_item_type(item: dict[str, Any], fallback: str = "playlist") -> str:
     """Return the best media type from a media item."""
-    return str(
-        item.get("media_type")
-        or item.get("media_content_type")
-        or item.get("type")
-        or fallback
+    return (
+        str(
+            item.get("media_type")
+            or item.get("media_content_type")
+            or item.get("type")
+            or fallback
+            or "playlist"
+        ).strip()
         or "playlist"
-    ).strip() or "playlist"
+    )
 
 
 def _schedule_media_mode(value: Any, media_id: str = "") -> str:
     """Normalize how a stored schedule should resolve its media."""
     mode = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
-    if mode in {"random", "random_playlist", "gentle_morning", "morning_mix", "random_gentle_morning_mix"}:
+    if mode in {
+        "random",
+        "random_playlist",
+        "gentle_morning",
+        "morning_mix",
+        "random_gentle_morning_mix",
+    }:
         return "random_playlist"
     if mode in {"selected", "fixed", "explicit", "playlist"}:
         return "selected"
@@ -373,7 +387,9 @@ def _schedule_morning_score(item: dict[str, Any]) -> int:
             item.get("name"),
             item.get("title"),
             item.get("description"),
-            (item.get("metadata") or {}).get("description") if isinstance(item.get("metadata"), dict) else "",
+            (item.get("metadata") or {}).get("description")
+            if isinstance(item.get("metadata"), dict)
+            else "",
             item.get("provider_label"),
         )
     ).lower()
@@ -575,7 +591,7 @@ class EngineEntry:
 class HomeiiScheduleActionQueue:
     """Execute one scheduled playback action with availability handling."""
 
-    def __init__(self, runtime: "HomeiiFlowRuntime", schedule_id: str) -> None:
+    def __init__(self, runtime: HomeiiFlowRuntime, schedule_id: str) -> None:
         """Initialize an action queue for one schedule."""
         self.runtime = runtime
         self.schedule_id = schedule_id
@@ -631,7 +647,10 @@ class HomeiiScheduleActionQueue:
                 "player": player,
                 "due_at": due_at.isoformat(),
                 "availability_attempts": availability_attempts,
-                "error": str(availability_attempts[-1].get("readiness", {}).get("reason") or "player is not ready"),
+                "error": str(
+                    availability_attempts[-1].get("readiness", {}).get("reason")
+                    or "player is not ready"
+                ),
                 "executed_at": _utc_iso(),
             }
         finally:
@@ -661,7 +680,7 @@ class HomeiiScheduleActionQueue:
 class HomeiiScheduleRunner:
     """Own the timer and action queue for one HOMEii schedule."""
 
-    def __init__(self, manager: "HomeiiScheduleManager", schedule: dict[str, Any]) -> None:
+    def __init__(self, manager: HomeiiScheduleManager, schedule: dict[str, Any]) -> None:
         """Initialize a runner for one schedule."""
         self.manager = manager
         self.runtime = manager.runtime
@@ -703,7 +722,8 @@ class HomeiiScheduleRunner:
             run_key = self.runtime._schedule_run_key(self.schedule, due_at)
             if self.runtime._last_schedule_runs.get(self.key) != run_key:
                 self.runtime.async_create_tracked_task(
-                    self.async_fire(due_at, trigger="catchup"), "maverick_music_flow_schedule_catchup"
+                    self.async_fire(due_at, trigger="catchup"),
+                    "maverick_music_flow_schedule_catchup",
                 )
                 return
             lookup_now = local_now + timedelta(seconds=121)
@@ -719,7 +739,8 @@ class HomeiiScheduleRunner:
         @callback
         def timer_finished(now_value: datetime) -> None:
             self.runtime.async_create_tracked_task(
-                self.async_fire(_local_datetime(now_value), trigger="timer"), "maverick_music_flow_schedule_timer"
+                self.async_fire(_local_datetime(now_value), trigger="timer"),
+                "maverick_music_flow_schedule_timer",
             )
 
         self._timer_unsub = async_track_point_in_time(self.runtime.hass, timer_finished, run_at_utc)
@@ -751,7 +772,8 @@ class HomeiiScheduleRunner:
                 schedule["enabled"] = False
                 self.runtime._storage["schedules"] = [
                     schedule
-                    if existing.get("profile_id") == schedule.get("profile_id") and existing.get("id") == schedule.get("id")
+                    if existing.get("profile_id") == schedule.get("profile_id")
+                    and existing.get("id") == schedule.get("id")
                     else existing
                     for existing in self.runtime.schedules()
                 ]
@@ -785,9 +807,13 @@ class HomeiiScheduleRunner:
             "name": self.schedule.get("name"),
             "player": self.schedule.get("player"),
             "media_id": self.schedule.get("media_id") or self.schedule.get("playlist") or "",
-            "media_name": self.schedule.get("media_name") or self.schedule.get("playlist_name") or "",
+            "media_name": self.schedule.get("media_name")
+            or self.schedule.get("playlist_name")
+            or "",
             "next_run": self.next_run.isoformat() if self.next_run else "",
-            "next_run_utc": self.next_run.astimezone(UTC).isoformat() if self.next_run and self.next_run.tzinfo else "",
+            "next_run_utc": self.next_run.astimezone(UTC).isoformat()
+            if self.next_run and self.next_run.tzinfo
+            else "",
             "last_triggered_at": self.last_triggered_at,
             "queue_busy": self.action_queue.queue_busy,
             "last_result": self.last_result,
@@ -797,7 +823,7 @@ class HomeiiScheduleRunner:
 class HomeiiScheduleManager:
     """Manage schedule runners using a scheduler-component-style lifecycle."""
 
-    def __init__(self, runtime: "HomeiiFlowRuntime") -> None:
+    def __init__(self, runtime: HomeiiFlowRuntime) -> None:
         """Initialize the schedule manager."""
         self.runtime = runtime
         self.state = "stopped"
@@ -821,7 +847,8 @@ class HomeiiScheduleManager:
             self.ready_at = _local_datetime().isoformat()
             self.reschedule_all()
             self.runtime.async_create_tracked_task(
-                self.runtime.async_tick_orchestration(trigger="scheduler_ready"), "maverick_music_flow_tick"
+                self.runtime.async_tick_orchestration(trigger="scheduler_ready"),
+                "maverick_music_flow_tick",
             )
             async_dispatcher_send(self.runtime.hass, SIGNAL_ENGINE_UPDATED)
 
@@ -861,7 +888,9 @@ class HomeiiScheduleManager:
             self._runners.pop(stale_key, None)
         self.write_status()
 
-    async def async_run_due(self, now: datetime | None = None, *, trigger: str = "interval") -> list[dict[str, Any]]:
+    async def async_run_due(
+        self, now: datetime | None = None, *, trigger: str = "interval"
+    ) -> list[dict[str, Any]]:
         """Run all schedules due for this minute through their runners."""
         if self.state != "ready":
             self.runtime._last_schedule_check = {
@@ -894,7 +923,9 @@ class HomeiiScheduleManager:
             "local_weekday": _homeii_weekday(local_now),
             "trigger": trigger,
             "schedule_count": len(self.runtime.schedules()),
-            "due_schedule_ids": [runner.schedule_id for runner, _due_at in due if runner.schedule_id],
+            "due_schedule_ids": [
+                runner.schedule_id for runner, _due_at in due if runner.schedule_id
+            ],
             "attempted_count": len(results),
             "executed_count": len([result for result in results if result.get("ok")]),
             "failed_count": len([result for result in results if not result.get("ok")]),
@@ -927,7 +958,8 @@ class HomeiiScheduleManager:
                 (
                     item
                     for item in self.runtime.schedules(clean_profile)
-                    if str(item.get("id") or item.get("schedule_id") or "").strip() == clean_schedule_id
+                    if str(item.get("id") or item.get("schedule_id") or "").strip()
+                    == clean_schedule_id
                 ),
                 None,
             )
@@ -950,7 +982,9 @@ class HomeiiScheduleManager:
     def write_status(self) -> None:
         """Publish runner details back to runtime status fields."""
         details = [runner.details() for runner in self._runners.values()]
-        self.runtime._schedule_job_details = {runner.key: runner.details() for runner in self._runners.values()}
+        self.runtime._schedule_job_details = {
+            runner.key: runner.details() for runner in self._runners.values()
+        }
         self.runtime._schedule_manager_status = {
             "state": self.state,
             "started_at": self.started_at,
@@ -1092,9 +1126,7 @@ class HomeiiFlowRuntime:
             "epoch": self._snapshot_epoch,
             "identity": _clean_string(identity),
             "revision": int(
-                revision
-                if revision is not None
-                else self._snapshot_revisions.get(clean_domain, 0)
+                revision if revision is not None else self._snapshot_revisions.get(clean_domain, 0)
             ),
             "generated_at": _utc_iso(),
             "reason": self._snapshot_revision_reasons.get(clean_domain, ""),
@@ -1173,7 +1205,9 @@ class HomeiiFlowRuntime:
         self._artwork_sources[token] = (clean, time.monotonic() + ARTWORK_TOKEN_LIFETIME)
         if len(self._artwork_sources) > 5000:
             now = time.monotonic()
-            expired = [key for key, (_, expires_at) in self._artwork_sources.items() if expires_at <= now]
+            expired = [
+                key for key, (_, expires_at) in self._artwork_sources.items() if expires_at <= now
+            ]
             for key in expired:
                 expired_source = self._artwork_sources.pop(key, ("", 0))[0]
                 if expired_source and self._artwork_source_tokens.get(expired_source) == key:
@@ -1245,7 +1279,12 @@ class HomeiiFlowRuntime:
         if lower.startswith(("http://", "https://", "/", "imageproxy")):
             return True
         if len(clean) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in clean):
-            return "proxy" in key_lower or "image" in key_lower or "art" in key_lower or "thumb" in key_lower
+            return (
+                "proxy" in key_lower
+                or "image" in key_lower
+                or "art" in key_lower
+                or "thumb" in key_lower
+            )
         if lower.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif")):
             return True
         return "imageproxy" in lower or "media_player_proxy" in lower
@@ -1259,7 +1298,12 @@ class HomeiiFlowRuntime:
             return ""
         key_lower = key.lower()
         if len(clean) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in clean):
-            if "proxy" in key_lower or "image" in key_lower or "art" in key_lower or "thumb" in key_lower:
+            if (
+                "proxy" in key_lower
+                or "image" in key_lower
+                or "art" in key_lower
+                or "thumb" in key_lower
+            ):
                 return f"/imageproxy/{clean}"
         if clean.startswith("imageproxy"):
             return f"/{clean}"
@@ -1271,7 +1315,9 @@ class HomeiiFlowRuntime:
             return clean
         return ""
 
-    def _artwork_source_candidates(self, value: Any, *, depth: int = 0, key_hint: str = "") -> list[str]:
+    def _artwork_source_candidates(
+        self, value: Any, *, depth: int = 0, key_hint: str = ""
+    ) -> list[str]:
         """Return artwork source candidates found anywhere in a media payload."""
         if value is None or depth > 8:
             return []
@@ -1283,31 +1329,43 @@ class HomeiiFlowRuntime:
             return candidates
         if isinstance(value, list):
             for item in value:
-                for source in self._artwork_source_candidates(item, depth=depth + 1, key_hint=key_hint):
+                for source in self._artwork_source_candidates(
+                    item, depth=depth + 1, key_hint=key_hint
+                ):
                     _append_unique(candidates, source)
             return candidates
         if not isinstance(value, dict):
             return []
 
-        provider = _dict_first(value, "provider", "provider_instance", "provider_domain", "provider_id")
+        provider = _dict_first(
+            value, "provider", "provider_instance", "provider_domain", "provider_id"
+        )
         image_type = _clean_string(value.get("type")).lower()
         image_hint = str(key_hint or "").lower()
         path_is_image = bool(
             value.get("path")
             and (
                 any(token in image_hint for token in ("image", "art", "thumb", "cover", "picture"))
-                or image_type in {"thumb", "thumbnail", "fanart", "logo", "banner", "landscape", "clearart"}
+                or image_type
+                in {"thumb", "thumbnail", "fanart", "logo", "banner", "landscape", "clearart"}
             )
         )
         # Public station logos can be fetched directly when MA's proxy index is stale.
         direct_path = value.get("path")
-        if path_is_image and value.get("remotely_accessible") and isinstance(direct_path, str) and direct_path.startswith(("https://", "http://")):
+        if (
+            path_is_image
+            and value.get("remotely_accessible")
+            and isinstance(direct_path, str)
+            and direct_path.startswith(("https://", "http://"))
+        ):
             _append_unique(candidates, direct_path)
         proxy_value = _dict_first(value, "proxy_id", "image_proxy_id", "media_image_proxy_id")
         if not proxy_value and path_is_image:
             proxy_value = value.get("path")
         if proxy_value:
-            source = self._normalize_artwork_source(proxy_value, key="image_proxy_id", provider=provider)
+            source = self._normalize_artwork_source(
+                proxy_value, key="image_proxy_id", provider=provider
+            )
             if source:
                 _append_unique(candidates, source)
 
@@ -1348,29 +1406,39 @@ class HomeiiFlowRuntime:
             images = value.get(list_key)
             if isinstance(images, list):
                 for image in images:
-                    for source in self._artwork_source_candidates(image, depth=depth + 1, key_hint=list_key):
+                    for source in self._artwork_source_candidates(
+                        image, depth=depth + 1, key_hint=list_key
+                    ):
                         _append_unique(candidates, source)
 
         metadata = value.get("metadata") if isinstance(value.get("metadata"), dict) else {}
         if metadata:
             for key in artwork_keys:
-                source = self._normalize_artwork_source(metadata.get(key), key=key, provider=provider)
+                source = self._normalize_artwork_source(
+                    metadata.get(key), key=key, provider=provider
+                )
                 if source:
                     _append_unique(candidates, source)
             images = metadata.get("images")
             if isinstance(images, list):
                 for image in images:
-                    for source in self._artwork_source_candidates(image, depth=depth + 1, key_hint="image"):
+                    for source in self._artwork_source_candidates(
+                        image, depth=depth + 1, key_hint="image"
+                    ):
                         _append_unique(candidates, source)
 
         album = value.get("album") if isinstance(value.get("album"), dict) else {}
         if album:
-            for source in self._artwork_source_candidates(album, depth=depth + 1, key_hint="album_image"):
+            for source in self._artwork_source_candidates(
+                album, depth=depth + 1, key_hint="album_image"
+            ):
                 _append_unique(candidates, source)
 
         media_item = value.get("media_item") if isinstance(value.get("media_item"), dict) else {}
         if media_item:
-            for source in self._artwork_source_candidates(media_item, depth=depth + 1, key_hint="media_item_image"):
+            for source in self._artwork_source_candidates(
+                media_item, depth=depth + 1, key_hint="media_item_image"
+            ):
                 _append_unique(candidates, source)
 
         return candidates
@@ -1424,8 +1492,10 @@ class HomeiiFlowRuntime:
             return None
         media_item = item.get("media_item") if isinstance(item.get("media_item"), dict) else {}
         core = media_item or item
-        album = core.get("album") if isinstance(core.get("album"), dict) else (
-            item.get("album") if isinstance(item.get("album"), dict) else {}
+        album = (
+            core.get("album")
+            if isinstance(core.get("album"), dict)
+            else (item.get("album") if isinstance(item.get("album"), dict) else {})
         )
         album_text = _clean_string(
             core.get("album") if not isinstance(core.get("album"), (dict, list)) else ""
@@ -1466,7 +1536,12 @@ class HomeiiFlowRuntime:
         )
         normalized = {
             **item,
-            "id": _clean_string(_dict_first(core, "id", "item_id") or _dict_first(item, "id", "item_id") or uri or queue_item_id),
+            "id": _clean_string(
+                _dict_first(core, "id", "item_id")
+                or _dict_first(item, "id", "item_id")
+                or uri
+                or queue_item_id
+            ),
             "uri": uri,
             "media_type": media_type,
             "type": media_type,
@@ -1478,9 +1553,18 @@ class HomeiiFlowRuntime:
             "sort_index": fallback_index,
             "queue_item_id": queue_item_id,
             "queue_service_id": queue_item_id,
-            "provider": _clean_string(_dict_first(core, "provider", "provider_instance", "provider_domain") or _dict_first(item, "provider", "provider_instance", "provider_domain")),
-            "provider_label": _clean_string(_dict_first(core, "provider_label", "provider_name") or _dict_first(item, "provider_label", "provider_name")),
-            "favorite": bool(_dict_first(core, "favorite", "in_library", "library") or _dict_first(item, "favorite", "in_library", "library")),
+            "provider": _clean_string(
+                _dict_first(core, "provider", "provider_instance", "provider_domain")
+                or _dict_first(item, "provider", "provider_instance", "provider_domain")
+            ),
+            "provider_label": _clean_string(
+                _dict_first(core, "provider_label", "provider_name")
+                or _dict_first(item, "provider_label", "provider_name")
+            ),
+            "favorite": bool(
+                _dict_first(core, "favorite", "in_library", "library")
+                or _dict_first(item, "favorite", "in_library", "library")
+            ),
             "resume_position_ms": _dict_first(
                 core,
                 "resume_position_ms",
@@ -1494,10 +1578,7 @@ class HomeiiFlowRuntime:
             ),
             "chapter": _dict_first(core, "chapter", "chapter_number")
             or _dict_first(item, "chapter", "chapter_number"),
-            "explicit": bool(
-                _dict_first(core, "explicit")
-                or _dict_first(item, "explicit")
-            ),
+            "explicit": bool(_dict_first(core, "explicit") or _dict_first(item, "explicit")),
             "homeii_artwork_url": artwork_url,
             "image": artwork_url,
             "image_url": artwork_url,
@@ -1562,7 +1643,9 @@ class HomeiiFlowRuntime:
         artwork_sources: dict[str, str] = {}
 
         def collect(value: Any) -> None:
-            if isinstance(value, str) and value.startswith("/api/maverick_music_flow/artwork/item/"):
+            if isinstance(value, str) and value.startswith(
+                "/api/maverick_music_flow/artwork/item/"
+            ):
                 token = value.rsplit("/", 1)[-1]
                 source = self.resolve_artwork_source(token)
                 if source:
@@ -1591,7 +1674,9 @@ class HomeiiFlowRuntime:
         }
 
         def replace(value: Any) -> Any:
-            if isinstance(value, str) and value.startswith("/api/maverick_music_flow/artwork/item/"):
+            if isinstance(value, str) and value.startswith(
+                "/api/maverick_music_flow/artwork/item/"
+            ):
                 token = value.rsplit("/", 1)[-1]
                 return replacements.get(token) or ""
             if isinstance(value, list):
@@ -1608,14 +1693,17 @@ class HomeiiFlowRuntime:
             stored = await self._media_cache_store.async_load()
         except Exception:  # noqa: BLE001 - cache corruption must not block integration setup
             _LOGGER.warning("Could not load HOMEii media cache; starting with an empty cache")
-            self._media_cache_metrics["load_failures"] = int(
-                self._media_cache_metrics.get("load_failures") or 0
-            ) + 1
+            self._media_cache_metrics["load_failures"] = (
+                int(self._media_cache_metrics.get("load_failures") or 0) + 1
+            )
             return
-        if not isinstance(stored, dict) or int(stored.get("version") or 0) != MEDIA_CACHE_STORAGE_VERSION:
-            self._media_cache_metrics["schema_resets"] = int(
-                self._media_cache_metrics.get("schema_resets") or 0
-            ) + 1
+        if (
+            not isinstance(stored, dict)
+            or int(stored.get("version") or 0) != MEDIA_CACHE_STORAGE_VERSION
+        ):
+            self._media_cache_metrics["schema_resets"] = (
+                int(self._media_cache_metrics.get("schema_resets") or 0) + 1
+            )
             return
         entries = stored.get("entries", []) if isinstance(stored, dict) else []
         command_entries = stored.get("command_entries", []) if isinstance(stored, dict) else []
@@ -1636,15 +1724,24 @@ class HomeiiFlowRuntime:
             except (TypeError, ValueError):
                 continue
             age = now_epoch - stored_at
-            if not isinstance(key_parts, list) or not isinstance(result, dict) or age < 0 or age > 24 * 60 * 60:
+            if (
+                not isinstance(key_parts, list)
+                or not isinstance(result, dict)
+                or age < 0
+                or age > 24 * 60 * 60
+            ):
                 continue
             key = tuple(key_parts)
             restored = self._restore_persistent_cache_result(
                 result,
-                entry.get("artwork_sources") if isinstance(entry.get("artwork_sources"), dict) else {},
+                entry.get("artwork_sources")
+                if isinstance(entry.get("artwork_sources"), dict)
+                else {},
             )
             self._library_cache[key] = {
-                "fresh_until": 0.0 if entry.get("invalidated") else now_mono + max(0.0, 10 * 60 - age),
+                "fresh_until": 0.0
+                if entry.get("invalidated")
+                else now_mono + max(0.0, 10 * 60 - age),
                 "stale_until": now_mono + max(30.0, 24 * 60 * 60 - age),
                 "stored_at": stored_at,
                 "result": restored,
@@ -1667,10 +1764,14 @@ class HomeiiFlowRuntime:
                 continue
             restored = self._restore_persistent_cache_result(
                 result,
-                entry.get("artwork_sources") if isinstance(entry.get("artwork_sources"), dict) else {},
+                entry.get("artwork_sources")
+                if isinstance(entry.get("artwork_sources"), dict)
+                else {},
             )
             self._media_command_cache[key] = {
-                "fresh_until": 0.0 if entry.get("invalidated") else now_mono + max(0.0, 15 * 60 - age),
+                "fresh_until": 0.0
+                if entry.get("invalidated")
+                else now_mono + max(0.0, 15 * 60 - age),
                 "stale_until": now_mono + max(30.0, 24 * 60 * 60 - age),
                 "stored_at": stored_at,
                 "result": restored,
@@ -1757,9 +1858,9 @@ class HomeiiFlowRuntime:
                 }
             )
         except Exception:  # noqa: BLE001 - foreground browsing must survive storage failures
-            self._media_cache_metrics["persist_failures"] = int(
-                self._media_cache_metrics.get("persist_failures") or 0
-            ) + 1
+            self._media_cache_metrics["persist_failures"] = (
+                int(self._media_cache_metrics.get("persist_failures") or 0) + 1
+            )
             _LOGGER.warning("Could not persist HOMEii media cache")
             return
         self._media_cache_metrics["last_persist_at"] = _utc_iso()
@@ -1770,7 +1871,9 @@ class HomeiiFlowRuntime:
     def library_cache_status(self) -> dict[str, Any]:
         """Return privacy-safe cache health and performance counters."""
         now = time.monotonic()
-        fresh = sum(1 for item in self._library_cache.values() if float(item.get("fresh_until") or 0) > now)
+        fresh = sum(
+            1 for item in self._library_cache.values() if float(item.get("fresh_until") or 0) > now
+        )
         stale = sum(
             1
             for item in self._library_cache.values()
@@ -1798,8 +1901,10 @@ class HomeiiFlowRuntime:
 
     def _schedule_media_cache_warm(self) -> None:
         """Warm common library shelves after startup without delaying setup."""
-        if not self._active or self._media_cache_warm_unsub is not None or (
-            self._media_cache_warm_task is not None and not self._media_cache_warm_task.done()
+        if (
+            not self._active
+            or self._media_cache_warm_unsub is not None
+            or (self._media_cache_warm_task is not None and not self._media_cache_warm_task.done())
         ):
             return
 
@@ -1824,17 +1929,25 @@ class HomeiiFlowRuntime:
             async with semaphore:
                 try:
                     await self.async_get_library(
-                        {"media_type": media_type, "order_by": "sort_name", "limit": 60, "compact": True}
+                        {
+                            "media_type": media_type,
+                            "order_by": "sort_name",
+                            "limit": 60,
+                            "compact": True,
+                        }
                     )
                     warmed += 1
                 except Exception:  # noqa: BLE001 - warm-up is best effort
-                    self._media_cache_metrics["warm_failures"] = int(
-                        self._media_cache_metrics.get("warm_failures") or 0
-                    ) + 1
+                    self._media_cache_metrics["warm_failures"] = (
+                        int(self._media_cache_metrics.get("warm_failures") or 0) + 1
+                    )
 
-        await asyncio.gather(*(warm_shelf(kind) for kind in (
-            "playlist", "artist", "album", "radio", "track", "podcast"
-        )))
+        await asyncio.gather(
+            *(
+                warm_shelf(kind)
+                for kind in ("playlist", "artist", "album", "radio", "track", "podcast")
+            )
+        )
         self._media_cache_metrics["warm_status"] = "ready" if warmed else "degraded"
         self._media_cache_metrics["warm_shelves"] = warmed
         self._media_cache_metrics["last_warm_ms"] = round((time.perf_counter() - started) * 1000, 2)
@@ -1851,17 +1964,31 @@ class HomeiiFlowRuntime:
                     "volume_rules": _safe_list(stored.get("volume_rules")),
                     "announcements": _safe_list(stored.get("announcements")),
                     "activity": _safe_list(stored.get("activity")),
-                    "playback_stats": stored.get("playback_stats") if isinstance(stored.get("playback_stats"), dict) else {},
-                    "interface_preferences": stored.get("interface_preferences") if isinstance(stored.get("interface_preferences"), dict) else {},
-                    "wheel_preferences": stored.get("wheel_preferences") if isinstance(stored.get("wheel_preferences"), dict) else {},
-                    "saved_playlists": stored.get("saved_playlists") if isinstance(stored.get("saved_playlists"), dict) else {},
-                    "screensaver": stored.get("screensaver") if isinstance(stored.get("screensaver"), dict) else {},
-                    "artwork_lighting": stored.get("artwork_lighting") if isinstance(stored.get("artwork_lighting"), dict) else {},
+                    "playback_stats": stored.get("playback_stats")
+                    if isinstance(stored.get("playback_stats"), dict)
+                    else {},
+                    "interface_preferences": stored.get("interface_preferences")
+                    if isinstance(stored.get("interface_preferences"), dict)
+                    else {},
+                    "wheel_preferences": stored.get("wheel_preferences")
+                    if isinstance(stored.get("wheel_preferences"), dict)
+                    else {},
+                    "saved_playlists": stored.get("saved_playlists")
+                    if isinstance(stored.get("saved_playlists"), dict)
+                    else {},
+                    "screensaver": stored.get("screensaver")
+                    if isinstance(stored.get("screensaver"), dict)
+                    else {},
+                    "artwork_lighting": stored.get("artwork_lighting")
+                    if isinstance(stored.get("artwork_lighting"), dict)
+                    else {},
                     "sendspin_clients": {
                         client_id: user_id
                         for client_id, user_id in stored["sendspin_clients"].items()
                         if isinstance(client_id, str) and isinstance(user_id, str)
-                    } if isinstance(stored.get("sendspin_clients"), dict) else {},
+                    }
+                    if isinstance(stored.get("sendspin_clients"), dict)
+                    else {},
                 }
             )
         stored_secret = stored.get("artwork_token_secret") if isinstance(stored, dict) else None
@@ -1987,7 +2114,9 @@ class HomeiiFlowRuntime:
             )
 
         self._last_start_at = _local_datetime().isoformat()
-        self._orchestration_unsub = async_track_time_interval(self.hass, tick, timedelta(seconds=30))
+        self._orchestration_unsub = async_track_time_interval(
+            self.hass, tick, timedelta(seconds=30)
+        )
         self._minute_unsub = async_track_time_change(self.hass, minute_tick, second=0)
         self._schedule_manager.start()
         self._schedule_background_tick(0, "startup")
@@ -2041,11 +2170,19 @@ class HomeiiFlowRuntime:
         """Register exact Home Assistant jobs for all enabled schedules."""
         self._schedule_manager.reschedule_all()
 
-    async def async_tick_orchestration(self, now: datetime | None = None, *, trigger: str = "manual") -> dict[str, Any]:
+    async def async_tick_orchestration(
+        self, now: datetime | None = None, *, trigger: str = "manual"
+    ) -> dict[str, Any]:
         """Run one orchestration pass."""
         if not self._active:
             # Nothing may act on schedules, timers or volume rules once the entry unloads.
-            return {"generated_at": _utc_iso(), "local_time": self._last_tick_at, "schedules": [], "timers": [], "volume_rules": []}
+            return {
+                "generated_at": _utc_iso(),
+                "local_time": self._last_tick_at,
+                "schedules": [],
+                "timers": [],
+                "volume_rules": [],
+            }
         local_now = _local_datetime(now)
         self._last_tick_at = local_now.isoformat()
         self._last_tick_trigger = trigger
@@ -2203,7 +2340,15 @@ class HomeiiFlowRuntime:
             )
             playback_event = any(
                 token in event_name
-                for token in ("queue", "player", "playback", "media_item_played", "elapsed", "progress", "position")
+                for token in (
+                    "queue",
+                    "player",
+                    "playback",
+                    "media_item_played",
+                    "elapsed",
+                    "progress",
+                    "position",
+                )
             )
             affects_library = not playback_event and (
                 not event_name
@@ -2226,10 +2371,21 @@ class HomeiiFlowRuntime:
                 )
             )
             if affects_library and not progress_only:
-                self._bump_snapshot_revision("library", reason=event_name or "music_assistant_event")
+                self._bump_snapshot_revision(
+                    "library", reason=event_name or "music_assistant_event"
+                )
                 affected_types = {
                     media_type
-                    for media_type in ("playlist", "album", "artist", "track", "podcast", "audiobook", "radio", "genre")
+                    for media_type in (
+                        "playlist",
+                        "album",
+                        "artist",
+                        "track",
+                        "podcast",
+                        "audiobook",
+                        "radio",
+                        "genre",
+                    )
                     if media_type in event_name
                 }
                 self._mark_library_cache_stale(affected_types or None)
@@ -2237,7 +2393,9 @@ class HomeiiFlowRuntime:
                 self._search_cache.clear()
                 if not event_name or "provider" in event_name:
                     self._provider_ids_cache = (0.0, [])
-            if not progress_only and (not event_name or "player" in event_name or "queue" in event_name):
+            if not progress_only and (
+                not event_name or "player" in event_name or "queue" in event_name
+            ):
                 self._stats_cache = None
             if not progress_only:
                 changed_domains: list[str] = []
@@ -2246,7 +2404,9 @@ class HomeiiFlowRuntime:
                 if not event_name or "queue" in event_name or "media_item_played" in event_name:
                     changed_domains.append("queue")
                 if changed_domains:
-                    self._bump_snapshot_revision(*changed_domains, reason=event_name or "music_assistant_event")
+                    self._bump_snapshot_revision(
+                        *changed_domains, reason=event_name or "music_assistant_event"
+                    )
         self.hass.bus.async_fire(EVENT_MUSIC_ASSISTANT, dict(message))
         if not progress_only:
             async_dispatcher_send(self.hass, SIGNAL_ENGINE_UPDATED)
@@ -2275,7 +2435,9 @@ class HomeiiFlowRuntime:
         entry = self._matching_entry(instance_id)
         return bool(entry and entry.allow_local_media_urls)
 
-    async def _async_validate_media_reference(self, reference: Any, instance_id: Any = None) -> None:
+    async def _async_validate_media_reference(
+        self, reference: Any, instance_id: Any = None
+    ) -> None:
         """Refuse URL media that would make Music Assistant fetch a local address."""
         await async_validate_media_reference(
             reference,
@@ -2317,7 +2479,9 @@ class HomeiiFlowRuntime:
     ) -> dict[str, Any]:
         """Return context consumed by the card."""
         entry = self._matching_entry(instance_id)
-        resolved_instance = str(instance_id or (entry.instance_id if entry else DEFAULT_INSTANCE_ID))
+        resolved_instance = str(
+            instance_id or (entry.instance_id if entry else DEFAULT_INSTANCE_ID)
+        )
         resolved_profile = str(profile_id or (entry.profile_id if entry else DEFAULT_PROFILE_ID))
         return {
             "available": True,
@@ -2325,7 +2489,9 @@ class HomeiiFlowRuntime:
             "engine_version": VERSION,
             "instance_id": resolved_instance,
             "profile_id": resolved_profile,
-            "interface_preferences": copy.deepcopy(self._storage.get("interface_preferences", {}).get(resolved_profile, {})),
+            "interface_preferences": copy.deepcopy(
+                self._storage.get("interface_preferences", {}).get(resolved_profile, {})
+            ),
             "capabilities": CAPABILITIES,
             "frontend": {
                 "system_screensaver_url": "/maverick_music_flow/maverick-music-flow-system-screensaver.js",
@@ -2413,8 +2579,14 @@ class HomeiiFlowRuntime:
             if str(entry.get("state") or "").lower() == "loaded"
             or str(entry.get("state") or "").lower().endswith(".loaded")
         ]
-        all_players = all_players if all_players is not None else self.media_players_snapshot(include_artwork=False)
-        music_assistant_players = [player for player in all_players if self.is_music_assistant_player(player)]
+        all_players = (
+            all_players
+            if all_players is not None
+            else self.media_players_snapshot(include_artwork=False)
+        )
+        music_assistant_players = [
+            player for player in all_players if self.is_music_assistant_player(player)
+        ]
         required_services: tuple[str, ...] = ()
         command_bridge_urls = self.music_assistant_base_urls()
         command_bridge_tokens = self.music_assistant_tokens()
@@ -2424,8 +2596,7 @@ class HomeiiFlowRuntime:
             command_bridge_configured
             and self._ma_http_health.get("connected")
             and self._ma_http_health.get("authenticated")
-            and int(self._ma_http_health.get("schema_version") or 0)
-            >= MUSIC_ASSISTANT_SCHEMA_MIN
+            and int(self._ma_http_health.get("schema_version") or 0) >= MUSIC_ASSISTANT_SCHEMA_MIN
         )
         queue_check = self._ma_contract_checks.get("queue", {})
         library_check = self._ma_contract_checks.get("library", {})
@@ -2436,7 +2607,13 @@ class HomeiiFlowRuntime:
         missing_services: list[str] = []
         direct_player_count = int(self._ma_http_health.get("player_count") or 0)
         ma_ok = bool(loaded_entries and command_bridge_ok and direct_player_count > 0)
-        ma_status = "connected" if ma_ok else "attention" if (entries or music_assistant_services) else "missing"
+        ma_status = (
+            "connected"
+            if ma_ok
+            else "attention"
+            if (entries or music_assistant_services)
+            else "missing"
+        )
         if not entries:
             ma_message = "Music Assistant config entry was not found."
         elif not loaded_entries:
@@ -2537,7 +2714,9 @@ class HomeiiFlowRuntime:
             "status": status,
             "ok": required_ok,
             "generated_at": _utc_iso(),
-            "summary": "Required connections are ready." if required_ok else "One or more required connections need attention.",
+            "summary": "Required connections are ready."
+            if required_ok
+            else "One or more required connections need attention.",
             "connections": connections,
             "music_assistant": connections["music_assistant"],
             "queue_provider": connections["queue_provider"],
@@ -2602,14 +2781,23 @@ class HomeiiFlowRuntime:
                     raw_url = _normalized_http_url(source.get(key))
                     if raw_url and raw_url not in urls:
                         urls.append(raw_url)
-                host = str(source.get("host") or source.get("hostname") or source.get("ip_address") or "").strip()
+                host = str(
+                    source.get("host") or source.get("hostname") or source.get("ip_address") or ""
+                ).strip()
                 if host:
                     if host.startswith(("http://", "https://")):
                         candidate = _normalized_http_url(host)
                     else:
                         ssl_value = source.get("ssl")
-                        protocol = "https" if ssl_value is True or str(ssl_value).lower() in {"true", "1", "yes", "https"} else "http"
-                        port = str(source.get("port") or source.get("webserver_port") or 8095).strip()
+                        protocol = (
+                            "https"
+                            if ssl_value is True
+                            or str(ssl_value).lower() in {"true", "1", "yes", "https"}
+                            else "http"
+                        )
+                        port = str(
+                            source.get("port") or source.get("webserver_port") or 8095
+                        ).strip()
                         candidate = f"{protocol}://{host}{f':{port}' if port else ''}"
                     if candidate and candidate not in urls:
                         urls.append(candidate)
@@ -2683,8 +2871,16 @@ class HomeiiFlowRuntime:
         state = self.hass.states.get(entity_id)
         native = self._ma_players_by_entity.get(entity_id) or self._ma_players_by_id.get(entity_id)
         if native:
-            available = native.get("available") is not False and native.get("state") not in {"unknown", "unavailable"}
-            return {"ready": available, "reason": "" if available else "Music Assistant player is unavailable", "entity_id": entity_id, "state": native.get("state")}
+            available = native.get("available") is not False and native.get("state") not in {
+                "unknown",
+                "unavailable",
+            }
+            return {
+                "ready": available,
+                "reason": "" if available else "Music Assistant player is unavailable",
+                "entity_id": entity_id,
+                "state": native.get("state"),
+            }
         if state is None:
             return {"ready": False, "reason": "player entity not found", "entity_id": entity_id}
         if str(state.state or "").lower() in {"unknown", "unavailable"}:
@@ -2722,7 +2918,9 @@ class HomeiiFlowRuntime:
                     states_by_queue_id.setdefault(clean_queue_id, candidate)
 
         def artwork_values(attributes: dict[str, Any]) -> list[Any]:
-            metadata = attributes.get("metadata") if isinstance(attributes.get("metadata"), dict) else {}
+            metadata = (
+                attributes.get("metadata") if isinstance(attributes.get("metadata"), dict) else {}
+            )
             return [
                 attributes.get("entity_picture"),
                 attributes.get("media_image_url"),
@@ -2737,7 +2935,9 @@ class HomeiiFlowRuntime:
         players = []
         for state in media_states:
             attrs = state.attributes or {}
-            registry_entry = entity_registry.async_get(state.entity_id) if entity_registry is not None else None
+            registry_entry = (
+                entity_registry.async_get(state.entity_id) if entity_registry is not None else None
+            )
             registry_platform = str(getattr(registry_entry, "platform", "") or "").strip()
             registry_device_id = str(getattr(registry_entry, "device_id", "") or "").strip()
             registry_unique_id = str(getattr(registry_entry, "unique_id", "") or "").strip()
@@ -2752,13 +2952,14 @@ class HomeiiFlowRuntime:
             queue_state = None
             clean_active_queue = str(active_queue or "").strip()
             if clean_active_queue:
-                queue_state = states_by_entity.get(clean_active_queue) or states_by_queue_id.get(clean_active_queue)
+                queue_state = states_by_entity.get(clean_active_queue) or states_by_queue_id.get(
+                    clean_active_queue
+                )
             queue_attrs = queue_state.attributes if queue_state is not None else {}
             state_value = state.state
-            if (
-                str(state_value or "").lower() not in {"playing", "buffering"}
-                and str(queue_state.state if queue_state else "").lower() in {"playing", "buffering"}
-            ):
+            if str(state_value or "").lower() not in {"playing", "buffering"} and str(
+                queue_state.state if queue_state else ""
+            ).lower() in {"playing", "buffering"}:
                 state_value = queue_state.state
             artwork_candidates: list[str] = []
             homeii_artwork_url = ""
@@ -2774,13 +2975,27 @@ class HomeiiFlowRuntime:
                 )
             friendly_name = attrs.get("friendly_name") or state.entity_id
             media_title = _first_non_empty(attrs.get("media_title"), queue_attrs.get("media_title"))
-            media_artist = _first_non_empty(attrs.get("media_artist"), queue_attrs.get("media_artist"))
-            media_album_name = _first_non_empty(attrs.get("media_album_name"), queue_attrs.get("media_album_name"))
-            media_content_id = _first_non_empty(attrs.get("media_content_id"), queue_attrs.get("media_content_id"))
-            media_content_type = _first_non_empty(attrs.get("media_content_type"), queue_attrs.get("media_content_type"))
-            media_duration = _first_non_empty(attrs.get("media_duration"), queue_attrs.get("media_duration"))
-            media_position = _first_non_empty(attrs.get("media_position"), queue_attrs.get("media_position"))
-            entity_picture = homeii_artwork_url or (artwork_candidates[0] if artwork_candidates else attrs.get("entity_picture"))
+            media_artist = _first_non_empty(
+                attrs.get("media_artist"), queue_attrs.get("media_artist")
+            )
+            media_album_name = _first_non_empty(
+                attrs.get("media_album_name"), queue_attrs.get("media_album_name")
+            )
+            media_content_id = _first_non_empty(
+                attrs.get("media_content_id"), queue_attrs.get("media_content_id")
+            )
+            media_content_type = _first_non_empty(
+                attrs.get("media_content_type"), queue_attrs.get("media_content_type")
+            )
+            media_duration = _first_non_empty(
+                attrs.get("media_duration"), queue_attrs.get("media_duration")
+            )
+            media_position = _first_non_empty(
+                attrs.get("media_position"), queue_attrs.get("media_position")
+            )
+            entity_picture = homeii_artwork_url or (
+                artwork_candidates[0] if artwork_candidates else attrs.get("entity_picture")
+            )
             player_attributes = {
                 **attrs,
                 "friendly_name": friendly_name,
@@ -2797,10 +3012,15 @@ class HomeiiFlowRuntime:
                     )
                 ),
                 "entity_picture": entity_picture,
-                "media_image_url": homeii_artwork_url or _first_non_empty(attrs.get("media_image_url"), queue_attrs.get("media_image_url")),
+                "media_image_url": homeii_artwork_url
+                or _first_non_empty(
+                    attrs.get("media_image_url"), queue_attrs.get("media_image_url")
+                ),
                 "media_artist": media_artist,
                 "media_album_name": media_album_name,
-                "media_album_artist": _first_non_empty(attrs.get("media_album_artist"), queue_attrs.get("media_album_artist")),
+                "media_album_artist": _first_non_empty(
+                    attrs.get("media_album_artist"), queue_attrs.get("media_album_artist")
+                ),
                 "media_content_id": media_content_id,
                 "media_content_type": media_content_type,
                 "media_duration": media_duration,
@@ -2826,12 +3046,17 @@ class HomeiiFlowRuntime:
                     "queue_active": player_attributes["queue_active"],
                     "group_members": _safe_list(attrs.get("group_members")),
                     "entity_picture": entity_picture,
-                    "media_image_url": homeii_artwork_url or _first_non_empty(attrs.get("media_image_url"), queue_attrs.get("media_image_url")),
+                    "media_image_url": homeii_artwork_url
+                    or _first_non_empty(
+                        attrs.get("media_image_url"), queue_attrs.get("media_image_url")
+                    ),
                     "homeii_artwork_url": homeii_artwork_url,
                     "artwork_candidates": artwork_candidates[:5],
                     "media_artist": media_artist,
                     "media_album_name": media_album_name,
-                    "media_album_artist": _first_non_empty(attrs.get("media_album_artist"), queue_attrs.get("media_album_artist")),
+                    "media_album_artist": _first_non_empty(
+                        attrs.get("media_album_artist"), queue_attrs.get("media_album_artist")
+                    ),
                     "media_content_id": media_content_id,
                     "media_content_type": media_content_type,
                     "media_duration": media_duration,
@@ -2845,7 +3070,11 @@ class HomeiiFlowRuntime:
 
     def music_assistant_players_snapshot(self) -> list[dict[str, Any]]:
         """Return media players that look like Music Assistant players."""
-        return [player for player in self.media_players_snapshot() if self.is_music_assistant_player(player)]
+        return [
+            player
+            for player in self.media_players_snapshot()
+            if self.is_music_assistant_player(player)
+        ]
 
     def _resolve_ma_player_id(self, player: str) -> str:
         """Resolve a HA entity or MA player identifier to the native MA player id."""
@@ -2889,7 +3118,11 @@ class HomeiiFlowRuntime:
         name_matches: list[str] = []
         # Queue ownership is shared by grouped players; it is never player identity.
         for entry in er.async_get(self.hass).entities.values():
-            if entry.platform == "music_assistant" and entry.unique_id == player_id and entry.entity_id.startswith("media_player."):
+            if (
+                entry.platform == "music_assistant"
+                and entry.unique_id == player_id
+                and entry.entity_id.startswith("media_player.")
+            ):
                 return entry.entity_id
         for player in self.media_players_snapshot(include_artwork=False):
             attrs = player.get("attributes") if isinstance(player.get("attributes"), dict) else {}
@@ -2906,7 +3139,9 @@ class HomeiiFlowRuntime:
             }
             if player_id and player_id in identifiers:
                 return _clean_string(player.get("entity_id"))
-            friendly_name = _clean_string(player.get("friendly_name") or attrs.get("friendly_name")).casefold()
+            friendly_name = _clean_string(
+                player.get("friendly_name") or attrs.get("friendly_name")
+            ).casefold()
             if name and friendly_name == name and self.is_music_assistant_player(player):
                 name_matches.append(_clean_string(player.get("entity_id")))
         unique_name_matches = [entity_id for entity_id in dict.fromkeys(name_matches) if entity_id]
@@ -2921,24 +3156,35 @@ class HomeiiFlowRuntime:
         player_id = _clean_string(_dict_first(raw, "player_id", "id", "queue_id"))
         if not player_id:
             return None
-        current_media = raw.get("current_media") if isinstance(raw.get("current_media"), dict) else {}
-        media = self.normalize_media_item(current_media, fallback_media_type="track") if current_media else None
+        current_media = (
+            raw.get("current_media") if isinstance(raw.get("current_media"), dict) else {}
+        )
+        media = (
+            self.normalize_media_item(current_media, fallback_media_type="track")
+            if current_media
+            else None
+        )
         media = media or {}
         entity_id = self._ha_entity_for_ma_player(raw)
         volume = _maybe_number(_dict_first(raw, "volume_level", "group_volume"))
         volume_level = None if volume is None else max(0.0, min(1.0, volume / 100))
-        playback_state = _clean_string(_dict_first(raw, "playback_state", "state")).lower() or "idle"
+        playback_state = (
+            _clean_string(_dict_first(raw, "playback_state", "state")).lower() or "idle"
+        )
         if raw.get("available") is False:
             playback_state = "unavailable"
         active_source = _clean_string(raw.get("active_source"))
         active_queue = _clean_string(_dict_first(raw, "active_queue", "queue_id"))
         artwork_url = _clean_string(media.get("homeii_artwork_url"))
-        friendly_name = _clean_string(_dict_first(raw, "name", "display_name") or entity_id or player_id)
+        friendly_name = _clean_string(
+            _dict_first(raw, "name", "display_name") or entity_id or player_id
+        )
         elapsed_position, elapsed_updated_at = playback_position_pair(raw)
         attributes = {
             "friendly_name": friendly_name,
             "registry_platform": "music_assistant",
-            "mass_player_type": _clean_string(_dict_first(raw, "type", "player_type", "provider")) or "player",
+            "mass_player_type": _clean_string(_dict_first(raw, "type", "player_type", "provider"))
+            or "player",
             "mass_player_id": player_id,
             "player_id": player_id,
             "active_queue": active_queue,
@@ -3008,21 +3254,39 @@ class HomeiiFlowRuntime:
         )
         raw_players = response.get("data") if isinstance(response, dict) else response
         if not isinstance(raw_players, list):
-            raise HomeiiFlowServiceUnavailable("Music Assistant returned an invalid player catalog.")
-        queue_response = await self.async_music_assistant_command({"command": "player_queues/all", "args": {}})
+            raise HomeiiFlowServiceUnavailable(
+                "Music Assistant returned an invalid player catalog."
+            )
+        queue_response = await self.async_music_assistant_command(
+            {"command": "player_queues/all", "args": {}}
+        )
         queues = queue_response.get("data") if isinstance(queue_response, dict) else queue_response
         if not isinstance(queues, list):
             raise HomeiiFlowServiceUnavailable("Music Assistant returned an invalid queue catalog.")
-        queue_ids = {_clean_string(item.get("queue_id")) for item in queues if isinstance(item, dict)}
+        queue_ids = {
+            _clean_string(item.get("queue_id")) for item in queues if isinstance(item, dict)
+        }
         resolved_players = []
         for raw in raw_players:
             if not isinstance(raw, dict):
                 continue
             source = _clean_string(raw.get("active_source"))
-            candidates = [raw.get("active_queue"), source, raw.get("synced_to"), raw.get("active_group")]
+            candidates = [
+                raw.get("active_queue"),
+                source,
+                raw.get("synced_to"),
+                raw.get("active_group"),
+            ]
             if not source:
                 candidates.append(raw.get("player_id"))
-            queue_id = next((_clean_string(value) for value in candidates if value and _clean_string(value) in queue_ids), "")
+            queue_id = next(
+                (
+                    _clean_string(value)
+                    for value in candidates
+                    if value and _clean_string(value) in queue_ids
+                ),
+                "",
+            )
             resolved_players.append({**raw, "active_queue": queue_id})
         players = [
             player
@@ -3077,7 +3341,16 @@ class HomeiiFlowRuntime:
         attributes = player.get("attributes") if isinstance(player.get("attributes"), dict) else {}
         identity = " ".join(
             str(player.get(key) or "")
-            for key in ("entity_id", "friendly_name", "app_id", "source", "registry_platform", "mass_player_type", "mass_player_id", "active_queue")
+            for key in (
+                "entity_id",
+                "friendly_name",
+                "app_id",
+                "source",
+                "registry_platform",
+                "mass_player_type",
+                "mass_player_id",
+                "active_queue",
+            )
         ).lower()
         return bool(
             player.get("registry_platform") == "music_assistant"
@@ -3093,7 +3366,9 @@ class HomeiiFlowRuntime:
     def stats(self, *, include_artwork: bool = True) -> dict[str, Any]:
         """Return a state snapshot for diagnostics and future dashboards."""
         all_players = self.media_players_snapshot(include_artwork=include_artwork)
-        music_assistant_players = [player for player in all_players if self.is_music_assistant_player(player)]
+        music_assistant_players = [
+            player for player in all_players if self.is_music_assistant_player(player)
+        ]
         active_queue_counts: dict[str, int] = {}
         for player in music_assistant_players:
             queue_id = str(player.get("active_queue") or "").strip()
@@ -3103,9 +3378,16 @@ class HomeiiFlowRuntime:
             player
             for player in music_assistant_players
             if len(_safe_list(player.get("group_members"))) > 1
-            or (str(player.get("active_queue") or "").strip() and active_queue_counts.get(str(player.get("active_queue") or "").strip(), 0) > 1)
+            or (
+                str(player.get("active_queue") or "").strip()
+                and active_queue_counts.get(str(player.get("active_queue") or "").strip(), 0) > 1
+            )
         ]
-        playing = [player for player in music_assistant_players if str(player.get("state") or "").lower() in {"playing", "buffering"}]
+        playing = [
+            player
+            for player in music_assistant_players
+            if str(player.get("state") or "").lower() in {"playing", "buffering"}
+        ]
         active_player = playing[0] if playing else {}
         return {
             "generated_at": _utc_iso(),
@@ -3120,9 +3402,7 @@ class HomeiiFlowRuntime:
             "grouped_entities": [player["entity_id"] for player in grouped],
             "music_assistant_entities": [player["entity_id"] for player in music_assistant_players],
             "active_queue_groups": {
-                queue_id: count
-                for queue_id, count in active_queue_counts.items()
-                if count > 1
+                queue_id: count for queue_id, count in active_queue_counts.items() if count > 1
             },
             "services": self.services_snapshot(),
         }
@@ -3135,7 +3415,9 @@ class HomeiiFlowRuntime:
     ) -> dict[str, Any]:
         """Return player state for card-side Engine features."""
         all_players = all_players if all_players is not None else self.media_players_snapshot()
-        music_assistant_players = [player for player in all_players if self.is_music_assistant_player(player)]
+        music_assistant_players = [
+            player for player in all_players if self.is_music_assistant_player(player)
+        ]
         active_queue_counts: dict[str, int] = {}
         for player in music_assistant_players:
             queue_id = str(player.get("active_queue") or "").strip()
@@ -3149,9 +3431,7 @@ class HomeiiFlowRuntime:
             "music_assistant_count": len(music_assistant_players),
             "all_media_players_total": len(all_players),
             "active_queue_groups": {
-                queue_id: count
-                for queue_id, count in active_queue_counts.items()
-                if count > 1
+                queue_id: count for queue_id, count in active_queue_counts.items() if count > 1
             },
         }
         if include_all:
@@ -3223,29 +3503,41 @@ class HomeiiFlowRuntime:
         if self._playback_stats_last_tick_at is None:
             elapsed_seconds = 0.0
         else:
-            elapsed_seconds = max(0.0, min(300.0, (local_now - self._playback_stats_last_tick_at).total_seconds()))
+            elapsed_seconds = max(
+                0.0, min(300.0, (local_now - self._playback_stats_last_tick_at).total_seconds())
+            )
         self._playback_stats_last_tick_at = local_now
         day_key = local_now.date().isoformat()
         day = self._playback_stats_day(day_key)
-        active_entities = {str(player.get("entity_id") or "").strip() for player in playing if player.get("entity_id")}
+        active_entities = {
+            str(player.get("entity_id") or "").strip()
+            for player in playing
+            if player.get("entity_id")
+        }
         started_entities = active_entities - self._playback_stats_active_entities
         ended_entities = self._playback_stats_active_entities - active_entities
 
         if elapsed_seconds > 0 and playing:
-            day["total_seconds"] = float(day.get("total_seconds") or 0) + elapsed_seconds * len(playing)
+            day["total_seconds"] = float(day.get("total_seconds") or 0) + elapsed_seconds * len(
+                playing
+            )
             for player in playing:
                 entity_id = str(player.get("entity_id") or "").strip()
                 if not entity_id:
                     continue
                 player_stats = self._playback_stats_player(player)
-                player_stats["total_seconds"] = float(player_stats.get("total_seconds") or 0) + elapsed_seconds
+                player_stats["total_seconds"] = (
+                    float(player_stats.get("total_seconds") or 0) + elapsed_seconds
+                )
                 day_players = day["players"]
                 day_player = day_players.get(entity_id)
                 if not isinstance(day_player, dict):
                     day_player = {"total_seconds": 0, "sessions": 0}
                     day_players[entity_id] = day_player
                 day_player["friendly_name"] = player.get("friendly_name") or entity_id
-                day_player["total_seconds"] = float(day_player.get("total_seconds") or 0) + elapsed_seconds
+                day_player["total_seconds"] = (
+                    float(day_player.get("total_seconds") or 0) + elapsed_seconds
+                )
                 day_player["last_title"] = player.get("media_title")
                 self._playback_stats_dirty = True
 
@@ -3257,7 +3549,9 @@ class HomeiiFlowRuntime:
                     continue
                 player_stats = self._playback_stats_player(player)
                 player_stats["sessions"] = int(player_stats.get("sessions") or 0) + 1
-                day_player = day["players"].setdefault(entity_id, {"total_seconds": 0, "sessions": 0})
+                day_player = day["players"].setdefault(
+                    entity_id, {"total_seconds": 0, "sessions": 0}
+                )
                 day_player["friendly_name"] = player.get("friendly_name") or entity_id
                 day_player["sessions"] = int(day_player.get("sessions") or 0) + 1
                 day_player["last_title"] = player.get("media_title")
@@ -3352,7 +3646,9 @@ class HomeiiFlowRuntime:
         """Return a safe Engine-side screensaver recommendation."""
         stats = self.cached_stats()
         playing_entities = _safe_list(stats.get("playing_entities"))
-        active_player = stats.get("active_player") if isinstance(stats.get("active_player"), dict) else {}
+        active_player = (
+            stats.get("active_player") if isinstance(stats.get("active_player"), dict) else {}
+        )
         mode = "lyrics" if playing_entities else "clock"
         return {
             "mode": mode,
@@ -3375,9 +3671,13 @@ class HomeiiFlowRuntime:
             "profile_id": clean_profile,
             "enabled": bool(config.get("enabled", False)),
             "timeout_seconds": _bounded_int(config.get("timeout_seconds"), 90, 15, 3600),
-            "mode": str(config.get("mode") or "auto").strip().lower() if str(config.get("mode") or "auto").strip().lower() in {"auto", "clock", "lyrics"} else "auto",
+            "mode": str(config.get("mode") or "auto").strip().lower()
+            if str(config.get("mode") or "auto").strip().lower() in {"auto", "clock", "lyrics"}
+            else "auto",
             "auto_lyrics_when_playing": bool(config.get("auto_lyrics_when_playing", True)),
-            "clock_mode": str(config.get("clock_mode") or "digital").strip().lower() if str(config.get("clock_mode") or "digital").strip().lower() in {"digital", "analog"} else "digital",
+            "clock_mode": str(config.get("clock_mode") or "digital").strip().lower()
+            if str(config.get("clock_mode") or "digital").strip().lower() in {"digital", "analog"}
+            else "digital",
             "message": str(config.get("message") or "").strip()[:120],
             "show_artwork": bool(config.get("show_artwork", True)),
             "show_request_id": str(config.get("show_request_id") or ""),
@@ -3391,16 +3691,28 @@ class HomeiiFlowRuntime:
 
     async def async_set_screensaver_config(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Store system-wide screensaver configuration."""
-        profile_id = str(payload.get("profile_id") or DEFAULT_PROFILE_ID).strip() or DEFAULT_PROFILE_ID
+        profile_id = (
+            str(payload.get("profile_id") or DEFAULT_PROFILE_ID).strip() or DEFAULT_PROFILE_ID
+        )
         current_raw = self._screensaver_raw_config(profile_id)
         current = self.screensaver_config(profile_id)
         next_config = {
             **current_raw,
             "enabled": bool(payload.get("enabled", current.get("enabled", False))),
-            "timeout_seconds": _bounded_int(payload.get("timeout_seconds", current.get("timeout_seconds")), 90, 15, 3600),
+            "timeout_seconds": _bounded_int(
+                payload.get("timeout_seconds", current.get("timeout_seconds")), 90, 15, 3600
+            ),
             "mode": str(payload.get("mode", current.get("mode", "auto")) or "auto").strip().lower(),
-            "auto_lyrics_when_playing": bool(payload.get("auto_lyrics_when_playing", current.get("auto_lyrics_when_playing", True))),
-            "clock_mode": str(payload.get("clock_mode", current.get("clock_mode", "digital")) or "digital").strip().lower(),
+            "auto_lyrics_when_playing": bool(
+                payload.get(
+                    "auto_lyrics_when_playing", current.get("auto_lyrics_when_playing", True)
+                )
+            ),
+            "clock_mode": str(
+                payload.get("clock_mode", current.get("clock_mode", "digital")) or "digital"
+            )
+            .strip()
+            .lower(),
             "message": str(payload.get("message", current.get("message", "")) or "").strip()[:120],
             "show_artwork": bool(payload.get("show_artwork", current.get("show_artwork", True))),
             "updated_at": _utc_iso(),
@@ -3431,10 +3743,14 @@ class HomeiiFlowRuntime:
         )
         return self.screensaver_state(profile_id)
 
-    async def async_request_screensaver_show(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def async_request_screensaver_show(
+        self, payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Ask every loaded frontend screensaver agent to open once."""
         payload = payload or {}
-        profile_id = str(payload.get("profile_id") or DEFAULT_PROFILE_ID).strip() or DEFAULT_PROFILE_ID
+        profile_id = (
+            str(payload.get("profile_id") or DEFAULT_PROFILE_ID).strip() or DEFAULT_PROFILE_ID
+        )
         now = datetime.now(UTC)
         current = self._screensaver_raw_config(profile_id)
         next_config = {
@@ -3466,7 +3782,11 @@ class HomeiiFlowRuntime:
         recommendation = self.screensaver_recommendation()
         effective_mode = config.get("mode") or "auto"
         if effective_mode == "auto":
-            effective_mode = "lyrics" if config.get("auto_lyrics_when_playing") and recommendation.get("mode") == "lyrics" else "clock"
+            effective_mode = (
+                "lyrics"
+                if config.get("auto_lyrics_when_playing") and recommendation.get("mode") == "lyrics"
+                else "clock"
+            )
         return {
             "config": config,
             "recommendation": recommendation,
@@ -3478,23 +3798,34 @@ class HomeiiFlowRuntime:
 
     async def async_play_media(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Play media through the authoritative MA 2.10 queue API."""
-        player = str(payload.get("player") or payload.get("entity_id") or payload.get("selected_player") or "").strip()
-        media_id = str(
-            payload.get("media_id")
-            or payload.get("media_content_id")
-            or payload.get("uri")
+        player = str(
+            payload.get("player")
+            or payload.get("entity_id")
+            or payload.get("selected_player")
             or ""
         ).strip()
-        media_type = str(payload.get("media_type") or payload.get("media_content_type") or "music").strip() or "music"
+        media_id = str(
+            payload.get("media_id") or payload.get("media_content_id") or payload.get("uri") or ""
+        ).strip()
+        media_type = (
+            str(payload.get("media_type") or payload.get("media_content_type") or "music").strip()
+            or "music"
+        )
         enqueue = str(payload.get("enqueue") or "play").strip() or "play"
         radio_mode = bool(payload.get("radio_mode"))
         if not player or not media_id:
             raise ValueError("player and media_id are required")
         await self._async_validate_media_reference(media_id, payload.get("instance_id"))
-        verify_playback = bool(payload.get("verify_playback")) and enqueue in {"play", "replace", "shuffle"}
+        verify_playback = bool(payload.get("verify_playback")) and enqueue in {
+            "play",
+            "replace",
+            "shuffle",
+        }
         readiness = self._player_readiness(player)
         if verify_playback and not readiness.get("ready"):
-            raise HomeiiFlowServiceUnavailable(str(readiness.get("reason") or "player is not ready"))
+            raise HomeiiFlowServiceUnavailable(
+                str(readiness.get("reason") or "player is not ready")
+            )
         before_snapshot: dict[str, Any] = {}
 
         ma_player_id = self._resolve_ma_player_id(player)
@@ -3504,14 +3835,19 @@ class HomeiiFlowRuntime:
                 "args": {"player_id": ma_player_id},
             }
         )
-        active_queue = queue_response.get("data") if isinstance(queue_response, dict) else queue_response
+        active_queue = (
+            queue_response.get("data") if isinstance(queue_response, dict) else queue_response
+        )
         if isinstance(active_queue, dict):
             before_snapshot = copy.deepcopy(active_queue)
-        queue_id = _clean_string(
-            _dict_first(active_queue, "queue_id", "active_queue", "player_id")
-            if isinstance(active_queue, dict)
-            else ""
-        ) or ma_player_id
+        queue_id = (
+            _clean_string(
+                _dict_first(active_queue, "queue_id", "active_queue", "player_id")
+                if isinstance(active_queue, dict)
+                else ""
+            )
+            or ma_player_id
+        )
         shuffle = enqueue == "shuffle"
         queue_option = {
             "play": "replace",
@@ -3547,11 +3883,16 @@ class HomeiiFlowRuntime:
         if verify_playback:
             before_item = before_snapshot.get("current_item") or {}
             for _ in range(20):
-                response = await self.async_music_assistant_command({"command": "player_queues/get", "args": {"queue_id": queue_id}})
+                response = await self.async_music_assistant_command(
+                    {"command": "player_queues/get", "args": {"queue_id": queue_id}}
+                )
                 after_snapshot = response.get("data") if isinstance(response, dict) else response
                 after_snapshot = after_snapshot if isinstance(after_snapshot, dict) else {}
                 current_item = after_snapshot.get("current_item") or {}
-                changed_item = bool(current_item.get("queue_item_id") and current_item.get("queue_item_id") != before_item.get("queue_item_id"))
+                changed_item = bool(
+                    current_item.get("queue_item_id")
+                    and current_item.get("queue_item_id") != before_item.get("queue_item_id")
+                )
                 if after_snapshot.get("state") == "playing" and changed_item:
                     verified = True
                     break
@@ -3578,7 +3919,12 @@ class HomeiiFlowRuntime:
 
     async def async_player_command(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Run a player command through the MA 2.10 player API."""
-        player = str(payload.get("player") or payload.get("entity_id") or payload.get("selected_player") or "").strip()
+        player = str(
+            payload.get("player")
+            or payload.get("entity_id")
+            or payload.get("selected_player")
+            or ""
+        ).strip()
         command = str(payload.get("command") or payload.get("action") or "").strip().lower()
         if not player or not command:
             raise ValueError("player and command are required")
@@ -3593,13 +3939,20 @@ class HomeiiFlowRuntime:
             queue_response = await self.async_music_assistant_command(
                 {"command": "player_queues/get_active_queue", "args": {"player_id": player_id}}
             )
-            active_queue = queue_response.get("data", queue_response) if isinstance(queue_response, dict) else queue_response
+            active_queue = (
+                queue_response.get("data", queue_response)
+                if isinstance(queue_response, dict)
+                else queue_response
+            )
             active_queue_snapshot = active_queue if isinstance(active_queue, dict) else {}
-            return _clean_string(
-                _dict_first(active_queue, "queue_id", "active_queue", "player_id")
-                if isinstance(active_queue, dict)
-                else ""
-            ) or player_id
+            return (
+                _clean_string(
+                    _dict_first(active_queue, "queue_id", "active_queue", "player_id")
+                    if isinstance(active_queue, dict)
+                    else ""
+                )
+                or player_id
+            )
 
         if command in {"play", "media_play"}:
             api_command = "players/cmd/play"
@@ -3619,16 +3972,24 @@ class HomeiiFlowRuntime:
             }
         elif command in {"repeat", "repeat_set"}:
             api_command = "player_queues/repeat"
-            repeat = _clean_string(payload.get("repeat") or payload.get("repeat_mode") or "off").lower()
+            repeat = _clean_string(
+                payload.get("repeat") or payload.get("repeat_mode") or "off"
+            ).lower()
             args = {
                 "queue_id": await active_queue_id(),
                 "repeat_mode": repeat if repeat in {"off", "one", "all"} else "off",
             }
         elif command in {"volume", "volume_set"}:
             api_command = "players/cmd/volume_set"
-            volume = payload.get("volume_level") if payload.get("volume_level") is not None else payload.get("volume")
+            volume = (
+                payload.get("volume_level")
+                if payload.get("volume_level") is not None
+                else payload.get("volume")
+            )
             numeric = float(volume)
-            args["volume_level"] = round(max(0.0, min(1.0, numeric if numeric <= 1 else numeric / 100)) * 100)
+            args["volume_level"] = round(
+                max(0.0, min(1.0, numeric if numeric <= 1 else numeric / 100)) * 100
+            )
         elif command in {"mute", "unmute", "volume_mute"}:
             api_command = "players/cmd/volume_mute"
             args["muted"] = command == "mute" or bool(payload.get("is_volume_muted"))
@@ -3638,23 +3999,39 @@ class HomeiiFlowRuntime:
             api_command = "players/cmd/group_many"
             args = {
                 "target_player": player_id,
-                "child_player_ids": [self._resolve_ma_player_id(str(member)) for member in _safe_list(payload.get("group_members")) if str(member) != player],
+                "child_player_ids": [
+                    self._resolve_ma_player_id(str(member))
+                    for member in _safe_list(payload.get("group_members"))
+                    if str(member) != player
+                ],
             }
         elif command in {"seek", "media_seek"}:
             api_command = "player_queues/seek"
-            position = payload.get("seek_position") if payload.get("seek_position") is not None else payload.get("position")
+            position = (
+                payload.get("seek_position")
+                if payload.get("seek_position") is not None
+                else payload.get("position")
+            )
             args = {"queue_id": await active_queue_id(), "position": max(0, round(float(position)))}
         elif command == "playback_speed":
             queue_id = await active_queue_id()
             current_item = active_queue_snapshot.get("current_item") or {}
             media_item = current_item.get("media_item") or {}
             if media_item.get("media_type") not in {"podcast_episode", "audiobook"}:
-                raise ValueError("Playback speed is available only for podcast episodes and audiobooks. Select one before changing speed.")
+                raise ValueError(
+                    "Playback speed is available only for podcast episodes and audiobooks. Select one before changing speed."
+                )
             api_command, args = build_playback_speed(queue_id, payload)
         elif command in {"clear", "clear_playlist"}:
             api_command = "player_queues/clear"
             args = {"queue_id": await active_queue_id()}
-        elif command in {"autoplay", "autoplay_set", "dont_stop_the_music", "crossfade", "crossfade_set"}:
+        elif command in {
+            "autoplay",
+            "autoplay_set",
+            "dont_stop_the_music",
+            "crossfade",
+            "crossfade_set",
+        }:
             api_command, args = build_queue_switch(command, await active_queue_id(), payload)
         else:
             raise ValueError(f"Unsupported player command: {command}")
@@ -3672,7 +4049,9 @@ class HomeiiFlowRuntime:
 
     async def async_transfer_queue(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Transfer the current Music Assistant queue between players."""
-        source_player = str(payload.get("source_player") or payload.get("source_entity_id") or "").strip()
+        source_player = str(
+            payload.get("source_player") or payload.get("source_entity_id") or ""
+        ).strip()
         target_player = str(
             payload.get("target_player")
             or payload.get("target_entity_id")
@@ -3691,12 +4070,39 @@ class HomeiiFlowRuntime:
         target_queue_response = await self.async_music_assistant_command(
             {"command": "player_queues/get_active_queue", "args": {"player_id": target_id}}
         )
-        source_queue = source_queue_response.get("data") if isinstance(source_queue_response, dict) else source_queue_response
-        target_queue = target_queue_response.get("data") if isinstance(target_queue_response, dict) else target_queue_response
-        source_queue_id = _clean_string(_dict_first(source_queue, "queue_id", "player_id") if isinstance(source_queue, dict) else "") or source_id
-        target_queue_id = _clean_string(_dict_first(target_queue, "queue_id", "player_id") if isinstance(target_queue, dict) else "") or target_id
+        source_queue = (
+            source_queue_response.get("data")
+            if isinstance(source_queue_response, dict)
+            else source_queue_response
+        )
+        target_queue = (
+            target_queue_response.get("data")
+            if isinstance(target_queue_response, dict)
+            else target_queue_response
+        )
+        source_queue_id = (
+            _clean_string(
+                _dict_first(source_queue, "queue_id", "player_id")
+                if isinstance(source_queue, dict)
+                else ""
+            )
+            or source_id
+        )
+        target_queue_id = (
+            _clean_string(
+                _dict_first(target_queue, "queue_id", "player_id")
+                if isinstance(target_queue, dict)
+                else ""
+            )
+            or target_id
+        )
         if source_queue_id == target_queue_id:
-            return {"ok": True, "noop": True, "source_queue_id": source_queue_id, "target_queue_id": target_queue_id}
+            return {
+                "ok": True,
+                "noop": True,
+                "source_queue_id": source_queue_id,
+                "target_queue_id": target_queue_id,
+            }
         await self.async_music_assistant_command(
             {
                 "command": "player_queues/transfer",
@@ -3722,7 +4128,12 @@ class HomeiiFlowRuntime:
 
     async def async_queue_action(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Run a queue item action through the Engine."""
-        player = str(payload.get("player") or payload.get("entity_id") or payload.get("selected_player") or "").strip()
+        player = str(
+            payload.get("player")
+            or payload.get("entity_id")
+            or payload.get("selected_player")
+            or ""
+        ).strip()
         queue_id = str(payload.get("queue_id") or "").strip()
         action = str(payload.get("action") or "").strip().lower()
         queue_item_id = str(payload.get("queue_item_id") or payload.get("item_id") or "").strip()
@@ -3740,12 +4151,17 @@ class HomeiiFlowRuntime:
             queue_response = await self.async_music_assistant_command(
                 {"command": "player_queues/get_active_queue", "args": {"player_id": player_id}}
             )
-            active_queue = queue_response.get("data") if isinstance(queue_response, dict) else queue_response
-            clean_queue_id = _clean_string(
-                _dict_first(active_queue, "queue_id", "active_queue", "player_id")
-                if isinstance(active_queue, dict)
-                else ""
-            ) or player_id
+            active_queue = (
+                queue_response.get("data") if isinstance(queue_response, dict) else queue_response
+            )
+            clean_queue_id = (
+                _clean_string(
+                    _dict_first(active_queue, "queue_id", "active_queue", "player_id")
+                    if isinstance(active_queue, dict)
+                    else ""
+                )
+                or player_id
+            )
         direct_args: dict[str, Any] | None = None
         direct_command = ""
         if clean_queue_id and action == "remove":
@@ -3809,7 +4225,9 @@ class HomeiiFlowRuntime:
         """Return schedule count."""
         return len(self.schedules(profile_id))
 
-    def schedule_summaries(self, profile_id: str | None = None, now: datetime | None = None) -> list[dict[str, Any]]:
+    def schedule_summaries(
+        self, profile_id: str | None = None, now: datetime | None = None
+    ) -> list[dict[str, Any]]:
         """Return user-facing schedule details for sensors and diagnostics."""
         local_now = _local_datetime(now)
         summaries: list[dict[str, Any]] = []
@@ -3841,7 +4259,9 @@ class HomeiiFlowRuntime:
             )
         return summaries
 
-    def next_schedule_summary(self, profile_id: str | None = None, now: datetime | None = None) -> dict[str, Any]:
+    def next_schedule_summary(
+        self, profile_id: str | None = None, now: datetime | None = None
+    ) -> dict[str, Any]:
         """Return the next enabled schedule for a profile."""
         local_now = _local_datetime(now)
         best_schedule: dict[str, Any] | None = None
@@ -3876,7 +4296,9 @@ class HomeiiFlowRuntime:
             "next_run": best_run.isoformat(),
         }
 
-    def timer_summaries(self, profile_id: str | None = None, now: datetime | None = None) -> list[dict[str, Any]]:
+    def timer_summaries(
+        self, profile_id: str | None = None, now: datetime | None = None
+    ) -> list[dict[str, Any]]:
         """Return user-facing timer details for sensors and diagnostics."""
         current = now or datetime.now(UTC)
         if current.tzinfo is None:
@@ -3904,7 +4326,9 @@ class HomeiiFlowRuntime:
             )
         return summaries
 
-    def next_timer_summary(self, profile_id: str | None = None, now: datetime | None = None) -> dict[str, Any]:
+    def next_timer_summary(
+        self, profile_id: str | None = None, now: datetime | None = None
+    ) -> dict[str, Any]:
         """Return the next enabled one-shot timer for a profile."""
         current = now or datetime.now(UTC)
         if current.tzinfo is None:
@@ -3964,7 +4388,9 @@ class HomeiiFlowRuntime:
         now: datetime | None = None,
     ) -> list[dict[str, Any]]:
         """Return volume rules that are enabled and active now."""
-        return [rule for rule in self.volume_rule_summaries(profile_id, now) if rule.get("active_now")]
+        return [
+            rule for rule in self.volume_rule_summaries(profile_id, now) if rule.get("active_now")
+        ]
 
     def timer_count(self, profile_id: str | None = None) -> int:
         """Return active timer count."""
@@ -3992,8 +4418,15 @@ class HomeiiFlowRuntime:
             or payload.get("uri")
             or ""
         ).strip()
-        media_type = str(payload.get("media_type") or payload.get("media_content_type") or "playlist").strip() or "playlist"
-        media_mode = _schedule_media_mode(payload.get("media_mode") or payload.get("selection_mode"), media_id)
+        media_type = (
+            str(
+                payload.get("media_type") or payload.get("media_content_type") or "playlist"
+            ).strip()
+            or "playlist"
+        )
+        media_mode = _schedule_media_mode(
+            payload.get("media_mode") or payload.get("selection_mode"), media_id
+        )
         if media_mode == "random_playlist" and media_type == "music":
             media_type = "playlist"
         enqueue = str(payload.get("enqueue") or "play").strip().lower() or "play"
@@ -4010,7 +4443,8 @@ class HomeiiFlowRuntime:
             "profile_id": profile_id,
             "name": str(payload.get("name") or "HOMEii schedule").strip(),
             "player": str(payload.get("player") or payload.get("entity_id") or "").strip(),
-            "kind": str(payload.get("kind") or payload.get("action") or "wake_playback").strip() or "wake_playback",
+            "kind": str(payload.get("kind") or payload.get("action") or "wake_playback").strip()
+            or "wake_playback",
             "media_id": media_id,
             "media_type": media_type,
             "media_name": str(payload.get("media_name") or playlist_name or "").strip(),
@@ -4025,7 +4459,9 @@ class HomeiiFlowRuntime:
             "days": [int(day) for day in _safe_list(payload.get("days")) if str(day).strip()],
             "volume": payload.get("volume"),
             "enabled": bool(payload.get("enabled", True)),
-            "after_run": "disable" if str(payload.get("after_run") or payload.get("afterRun") or "").strip() == "disable" else "keep",
+            "after_run": "disable"
+            if str(payload.get("after_run") or payload.get("afterRun") or "").strip() == "disable"
+            else "keep",
             "updated_at": _utc_iso(),
         }
         schedules = [
@@ -4043,7 +4479,11 @@ class HomeiiFlowRuntime:
             "schedule_saved",
             f"Schedule saved: {schedule.get('name') or schedule_id}",
             profile_id=profile_id,
-            data={"schedule_id": schedule_id, "player": schedule.get("player"), "time": schedule.get("time")},
+            data={
+                "schedule_id": schedule_id,
+                "player": schedule.get("player"),
+                "time": schedule.get("time"),
+            },
         )
         return schedule
 
@@ -4074,7 +4514,9 @@ class HomeiiFlowRuntime:
 
     async def async_run_due_schedules(self, now: datetime | None = None) -> list[dict[str, Any]]:
         """Run enabled schedules that are due for the current minute."""
-        return await self._schedule_manager.async_run_due(now, trigger=self._last_tick_trigger or "interval")
+        return await self._schedule_manager.async_run_due(
+            now, trigger=self._last_tick_trigger or "interval"
+        )
 
     async def async_run_scheduled_schedule(
         self,
@@ -4118,7 +4560,9 @@ class HomeiiFlowRuntime:
         if player and not media_id:
             resolution = await self.async_resolve_schedule_media(schedule, media_type)
             media_id = str(resolution.get("media_id") or "").strip()
-            media_type = str(resolution.get("media_type") or media_type or "playlist").strip() or "playlist"
+            media_type = (
+                str(resolution.get("media_type") or media_type or "playlist").strip() or "playlist"
+            )
         if not player:
             return {
                 "ok": False,
@@ -4197,7 +4641,9 @@ class HomeiiFlowRuntime:
                             play_result["player_after"] = delayed_after
                             break
         else:
-            play_error = str(resolution.get("error") or "No playable media was resolved for this schedule.")
+            play_error = str(
+                resolution.get("error") or "No playable media was resolved for this schedule."
+            )
 
         provider = play_result.get("provider") or ""
         error = ""
@@ -4220,7 +4666,10 @@ class HomeiiFlowRuntime:
             "player": player,
             "media_id": media_id,
             "media_type": media_type,
-            "media_name": resolution.get("media_name") or schedule.get("media_name") or schedule.get("playlist_name") or "",
+            "media_name": resolution.get("media_name")
+            or schedule.get("media_name")
+            or schedule.get("playlist_name")
+            or "",
             "media_mode": resolution.get("mode") or schedule.get("media_mode"),
             "provider": provider,
             "verified": verified,
@@ -4231,7 +4680,8 @@ class HomeiiFlowRuntime:
             "resolution": resolution,
             "volume_error": volume_error,
             "player_before": play_result.get("player_before") or player_before,
-            "player_after": play_result.get("player_after") or _player_playback_snapshot(self.hass.states.get(player)),
+            "player_after": play_result.get("player_after")
+            or _player_playback_snapshot(self.hass.states.get(player)),
             "error": error,
             "executed_at": _utc_iso(),
         }
@@ -4288,10 +4738,15 @@ class HomeiiFlowRuntime:
         fallback_media_type: str = "playlist",
     ) -> dict[str, Any]:
         """Resolve a playable media item for schedules without an explicit media id."""
-        media_type = str(schedule.get("media_type") or fallback_media_type or "playlist").strip() or "playlist"
+        media_type = (
+            str(schedule.get("media_type") or fallback_media_type or "playlist").strip()
+            or "playlist"
+        )
         if media_type == "music":
             media_type = "playlist"
-        media_mode = _schedule_media_mode(schedule.get("media_mode"), str(schedule.get("media_id") or ""))
+        media_mode = _schedule_media_mode(
+            schedule.get("media_mode"), str(schedule.get("media_id") or "")
+        )
         try:
             response = await self.async_get_library(
                 {"media_type": media_type, "limit": 250, "compact": True}
@@ -4371,7 +4826,8 @@ class HomeiiFlowRuntime:
         timer = {
             "id": timer_id,
             "profile_id": profile_id,
-            "type": str(payload.get("timer_type") or payload.get("kind") or "sleep").strip() or "sleep",
+            "type": str(payload.get("timer_type") or payload.get("kind") or "sleep").strip()
+            or "sleep",
             "player": player,
             "action": action,
             "minutes": minutes,
@@ -4384,7 +4840,10 @@ class HomeiiFlowRuntime:
         timers = [
             existing_timer
             for existing_timer in self.timers()
-            if not (existing_timer.get("profile_id") == profile_id and existing_timer.get("id") == timer_id)
+            if not (
+                existing_timer.get("profile_id") == profile_id
+                and existing_timer.get("id") == timer_id
+            )
         ]
         timers.append(timer)
         self._storage["timers"] = timers
@@ -4394,7 +4853,12 @@ class HomeiiFlowRuntime:
             "timer_saved",
             f"Timer saved for {player}",
             profile_id=profile_id,
-            data={"timer_id": timer_id, "player": player, "action": action, "ends_at": ends_at.isoformat()},
+            data={
+                "timer_id": timer_id,
+                "player": player,
+                "action": action,
+                "ends_at": ends_at.isoformat(),
+            },
         )
         return timer
 
@@ -4411,7 +4875,10 @@ class HomeiiFlowRuntime:
             for timer in self.timers()
             if not (
                 str(timer.get("profile_id") or DEFAULT_PROFILE_ID) == profile_id
-                and ((timer_id and timer.get("id") == timer_id) or (not timer_id and timer.get("player") == player))
+                and (
+                    (timer_id and timer.get("id") == timer_id)
+                    or (not timer_id and timer.get("player") == player)
+                )
             )
         ]
         removed = before - len(self.timers())
@@ -4423,7 +4890,12 @@ class HomeiiFlowRuntime:
             profile_id=profile_id,
             data={"timer_id": timer_id, "player": player, "removed": removed},
         )
-        return {"profile_id": profile_id, "timer_id": timer_id, "player": player, "removed": removed}
+        return {
+            "profile_id": profile_id,
+            "timer_id": timer_id,
+            "player": player,
+            "removed": removed,
+        }
 
     async def async_run_due_timers(self, now: datetime | None = None) -> list[dict[str, Any]]:
         """Run enabled one-shot timers that are due."""
@@ -4463,8 +4935,11 @@ class HomeiiFlowRuntime:
 
     async def async_execute_timer(self, timer: dict[str, Any]) -> dict[str, Any]:
         """Share one execution across point-in-time and catch-up runners."""
-        key = (str(timer.get("profile_id") or DEFAULT_PROFILE_ID),
-               str(timer.get("id") or ""), str(timer.get("ends_at") or ""))
+        key = (
+            str(timer.get("profile_id") or DEFAULT_PROFILE_ID),
+            str(timer.get("id") or ""),
+            str(timer.get("ends_at") or ""),
+        )
         task = self._timer_execution_tasks.get(key)
         if task is None:
             # Claim before yielding: activity updates can re-enter this method.
@@ -4544,7 +5019,9 @@ class HomeiiFlowRuntime:
                     "called": True,
                     "return_response": False,
                     "config_entry_id": entry_id,
-                    "config_entry_id_used": bool(entry_id and call_data.get("config_entry_id") == entry_id),
+                    "config_entry_id_used": bool(
+                        entry_id and call_data.get("config_entry_id") == entry_id
+                    ),
                 }
             try:
                 return await self.hass.services.async_call(
@@ -4564,7 +5041,9 @@ class HomeiiFlowRuntime:
                     "called": True,
                     "return_response": False,
                     "config_entry_id": entry_id,
-                    "config_entry_id_used": bool(entry_id and retry_data.get("config_entry_id") == entry_id),
+                    "config_entry_id_used": bool(
+                        entry_id and retry_data.get("config_entry_id") == entry_id
+                    ),
                 }
 
         if not return_response:
@@ -4679,14 +5158,15 @@ class HomeiiFlowRuntime:
             (
                 candidate
                 for candidate in players
-                if candidate.get("available", candidate.get("attributes", {}).get("available", True)) is not False
+                if candidate.get(
+                    "available", candidate.get("attributes", {}).get("available", True)
+                )
+                is not False
                 and str(candidate.get("state") or "").lower() not in {"unavailable", "unknown"}
             ),
             players[0] if players else {},
         )
-        player_id = _clean_string(
-            _dict_first(player, "mass_player_id", "player_id", "entity_id")
-        )
+        player_id = _clean_string(_dict_first(player, "mass_player_id", "player_id", "entity_id"))
         probes: dict[str, tuple[str, dict[str, Any]]] = {
             "library": (
                 "music/playlists/library_items",
@@ -4702,7 +5182,10 @@ class HomeiiFlowRuntime:
                 },
             ),
         }
-        async def run_probe(name: str, command: str, args: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+
+        async def run_probe(
+            name: str, command: str, args: dict[str, Any]
+        ) -> tuple[str, dict[str, Any]]:
             started = time.perf_counter()
             try:
                 await self.async_music_assistant_command({"command": command, "args": args})
@@ -4737,18 +5220,25 @@ class HomeiiFlowRuntime:
                     if isinstance(active_response, dict)
                     else active_response
                 )
-                queue_id = _clean_string(
-                    _dict_first(active_queue, "queue_id", "player_id")
-                    if isinstance(active_queue, dict)
-                    else ""
-                ) or player_id
+                queue_id = (
+                    _clean_string(
+                        _dict_first(active_queue, "queue_id", "player_id")
+                        if isinstance(active_queue, dict)
+                        else ""
+                    )
+                    or player_id
+                )
                 items_response = await self.async_music_assistant_command(
                     {
                         "command": "player_queues/items",
                         "args": {"queue_id": queue_id, "limit": 1, "offset": 0},
                     }
                 )
-                items = items_response.get("data") if isinstance(items_response, dict) else items_response
+                items = (
+                    items_response.get("data")
+                    if isinstance(items_response, dict)
+                    else items_response
+                )
                 if not isinstance(items, list):
                     raise HomeiiFlowServiceUnavailable(
                         "Music Assistant player_queues/items returned an invalid response."
@@ -4770,10 +5260,7 @@ class HomeiiFlowRuntime:
                     "error": str(err)[:500],
                 }
 
-        probe_tasks = [
-            run_probe(name, command, args)
-            for name, (command, args) in probes.items()
-        ]
+        probe_tasks = [run_probe(name, command, args) for name, (command, args) in probes.items()]
         if player_id:
             probe_tasks.append(run_queue_probe())
         results = await asyncio.gather(*probe_tasks)
@@ -4850,7 +5337,9 @@ class HomeiiFlowRuntime:
         if not command:
             raise ValueError("command is required")
         if not music_assistant_command_allowed(command):
-            raise ValueError(f"Music Assistant command is not allowed through the card bridge: {command}")
+            raise ValueError(
+                f"Music Assistant command is not allowed through the card bridge: {command}"
+            )
         if args is None:
             args = {}
         if not isinstance(args, dict):
@@ -4864,16 +5353,16 @@ class HomeiiFlowRuntime:
             cached = self._media_command_cache.get(cache_key)
             if cached and not cache_refresh:
                 if float(cached.get("fresh_until") or 0) > now:
-                    self._media_cache_metrics["command_hits"] = int(
-                        self._media_cache_metrics.get("command_hits") or 0
-                    ) + 1
+                    self._media_cache_metrics["command_hits"] = (
+                        int(self._media_cache_metrics.get("command_hits") or 0) + 1
+                    )
                     if cached.get("persistent"):
                         self._media_cache_metrics["persistent_hits"] += 1
                     return copy.deepcopy(cached["result"])
                 if float(cached.get("stale_until") or 0) > now:
-                    self._media_cache_metrics["command_stale_hits"] = int(
-                        self._media_cache_metrics.get("command_stale_hits") or 0
-                    ) + 1
+                    self._media_cache_metrics["command_stale_hits"] = (
+                        int(self._media_cache_metrics.get("command_stale_hits") or 0) + 1
+                    )
                     if cache_key not in self._media_command_inflight:
                         task = self.async_create_tracked_task(
                             self.async_music_assistant_command(
@@ -4885,16 +5374,18 @@ class HomeiiFlowRuntime:
                         )
                         self._media_command_inflight[cache_key] = task
                         task.add_done_callback(
-                            lambda completed, key=cache_key: self._finish_media_command_refresh(key, completed)
+                            lambda completed, key=cache_key: self._finish_media_command_refresh(
+                                key, completed
+                            )
                         )
                     return copy.deepcopy(cached["result"])
             inflight = self._media_command_inflight.get(cache_key)
             if inflight is not None:
                 self._media_cache_metrics["coalesced"] += 1
                 return copy.deepcopy(await asyncio.shield(inflight))
-            self._media_cache_metrics["command_misses"] = int(
-                self._media_cache_metrics.get("command_misses") or 0
-            ) + 1
+            self._media_cache_metrics["command_misses"] = (
+                int(self._media_cache_metrics.get("command_misses") or 0) + 1
+            )
             task = self.async_create_tracked_task(
                 self.async_music_assistant_command(
                     payload,
@@ -4976,7 +5467,9 @@ class HomeiiFlowRuntime:
         unique: list[dict[str, Any]] = []
         seen: set[str] = set()
         for payload in payloads:
-            clean = {key: value for key, value in dict(payload or {}).items() if value not in (None, "")}
+            clean = {
+                key: value for key, value in dict(payload or {}).items() if value not in (None, "")
+            }
             marker = repr(sorted(clean.items(), key=lambda item: item[0]))
             if marker in seen:
                 continue
@@ -5034,7 +5527,9 @@ class HomeiiFlowRuntime:
         decorated = self.decorate_artwork_urls(response)
         items: list[dict[str, Any]] = []
         for index, raw_item in enumerate(_extract_media_items(decorated)):
-            normalized_item = self.normalize_media_item(raw_item, fallback_media_type=media_type, fallback_index=index)
+            normalized_item = self.normalize_media_item(
+                raw_item, fallback_media_type=media_type, fallback_index=index
+            )
             if normalized_item:
                 items.append(normalized_item)
         return items
@@ -5114,8 +5609,10 @@ class HomeiiFlowRuntime:
             if not isinstance(item, dict):
                 continue
             path = _clean_string(_dict_first(item, "path", "uri"))
-            provider = path.split("://", 1)[0] if "://" in path else _clean_string(
-                _dict_first(item, "provider_instance", "provider")
+            provider = (
+                path.split("://", 1)[0]
+                if "://" in path
+                else _clean_string(_dict_first(item, "provider_instance", "provider"))
             )
             if provider and provider != "library" and provider not in providers:
                 providers.append(provider)
@@ -5137,47 +5634,75 @@ class HomeiiFlowRuntime:
         request_revision = self._snapshot_revisions.get("queue", 0)
         # Resolve on every read: a supplied queue id may predate grouping or transfer.
         player_id = self._resolve_ma_player_id(entity_id)
-        response = await self.async_music_assistant_command({
-            "command": "player_queues/get_active_queue",
-            "args": {"player_id": player_id}, "profile_id": profile_id,
-        })
+        response = await self.async_music_assistant_command(
+            {
+                "command": "player_queues/get_active_queue",
+                "args": {"player_id": player_id},
+                "profile_id": profile_id,
+            }
+        )
         active_queue = response.get("data") if isinstance(response, dict) else response
-        resolved_queue_id = _clean_string(active_queue.get("queue_id")) if isinstance(active_queue, dict) else ""
+        resolved_queue_id = (
+            _clean_string(active_queue.get("queue_id")) if isinstance(active_queue, dict) else ""
+        )
         resolved_queue_id = resolved_queue_id or player_id
         provider = "music_assistant.server_command:player_queues/get+items"
-        response = await self.async_music_assistant_command({
-            "command": "player_queues/get", "args": {"queue_id": resolved_queue_id},
-            "profile_id": profile_id,
-        })
+        response = await self.async_music_assistant_command(
+            {
+                "command": "player_queues/get",
+                "args": {"queue_id": resolved_queue_id},
+                "profile_id": profile_id,
+            }
+        )
         queue_state = response.get("data") if isinstance(response, dict) else response
         if queue_state is None and active_queue is None:
-            queue_state = {"queue_id": resolved_queue_id, "items": 0, "current_index": None, "active": False}
+            queue_state = {
+                "queue_id": resolved_queue_id,
+                "items": 0,
+                "current_index": None,
+                "active": False,
+            }
         if not isinstance(queue_state, dict):
             raise HomeiiFlowServiceUnavailable("Music Assistant returned an invalid queue state.")
         expected_count = int(queue_state.get("items") or 0)
         queue_items: list[Any] = []
         # A full snapshot must include tracks past the first 500 items.
         while len(queue_items) < expected_count:
-            response = await self.async_music_assistant_command({
-                "command": "player_queues/items",
-                "args": {"queue_id": resolved_queue_id, "limit": 500, "offset": len(queue_items)},
-                "profile_id": profile_id,
-            })
+            response = await self.async_music_assistant_command(
+                {
+                    "command": "player_queues/items",
+                    "args": {
+                        "queue_id": resolved_queue_id,
+                        "limit": 500,
+                        "offset": len(queue_items),
+                    },
+                    "profile_id": profile_id,
+                }
+            )
             page = response.get("data") if isinstance(response, dict) else response
             if not isinstance(page, list) or not page:
-                raise HomeiiFlowServiceUnavailable("Music Assistant returned an incomplete queue; refresh required.")
+                raise HomeiiFlowServiceUnavailable(
+                    "Music Assistant returned an incomplete queue; refresh required."
+                )
             queue_items.extend(page)
         if expected_count:
-            response = await self.async_music_assistant_command({
-                "command": "player_queues/get", "args": {"queue_id": resolved_queue_id},
-                "profile_id": profile_id,
-            })
+            response = await self.async_music_assistant_command(
+                {
+                    "command": "player_queues/get",
+                    "args": {"queue_id": resolved_queue_id},
+                    "profile_id": profile_id,
+                }
+            )
             latest = response.get("data") if isinstance(response, dict) else response
             if not isinstance(latest, dict) or latest.get("items") != queue_state.get("items"):
-                raise HomeiiFlowServiceUnavailable("Music Assistant queue changed while loading; refresh required.")
+                raise HomeiiFlowServiceUnavailable(
+                    "Music Assistant queue changed while loading; refresh required."
+                )
             queue_state = latest
         if self._snapshot_revisions.get("queue", 0) != request_revision:
-            raise HomeiiFlowServiceUnavailable("Music Assistant queue changed while loading; refresh required.")
+            raise HomeiiFlowServiceUnavailable(
+                "Music Assistant queue changed while loading; refresh required."
+            )
         combined = dict(queue_state)
         combined["queue_id"] = resolved_queue_id
         combined["items_count"] = expected_count
@@ -5190,9 +5715,13 @@ class HomeiiFlowRuntime:
             player=player,
         )
         visible = int(normalized.get("visible_items") or len(normalized.get("items") or []))
-        expected = int(normalized.get("items_count") or self._queue_payload_expected_count(decorated))
+        expected = int(
+            normalized.get("items_count") or self._queue_payload_expected_count(decorated)
+        )
         proxy_art = sum(
-            1 for item in normalized.get("items", []) if _clean_string(item.get("homeii_artwork_url"))
+            1
+            for item in normalized.get("items", [])
+            if _clean_string(item.get("homeii_artwork_url"))
         )
         results.append(
             {
@@ -5227,7 +5756,18 @@ class HomeiiFlowRuntime:
             if isinstance(nested, dict):
                 if clean_entity and isinstance(nested.get(clean_entity), dict):
                     return nested[clean_entity]
-                if any(candidate in nested for candidate in ("items", "queue_items", "queue_state", "queue", "current_item", "items_before", "items_after")):
+                if any(
+                    candidate in nested
+                    for candidate in (
+                        "items",
+                        "queue_items",
+                        "queue_state",
+                        "queue",
+                        "current_item",
+                        "items_before",
+                        "items_after",
+                    )
+                ):
                     return nested
         return value
 
@@ -5279,7 +5819,9 @@ class HomeiiFlowRuntime:
         clean_entity = _clean_string(entity_id)
         if not clean_entity:
             return None
-        direct_player = self._ma_players_by_entity.get(clean_entity) or self._ma_players_by_id.get(clean_entity)
+        direct_player = self._ma_players_by_entity.get(clean_entity) or self._ma_players_by_id.get(
+            clean_entity
+        )
         if direct_player:
             return direct_player
         for player in self.media_players_snapshot():
@@ -5291,19 +5833,37 @@ class HomeiiFlowRuntime:
         """Build a current queue item from the selected player state as a last Engine-owned source."""
         if not player:
             return None
-        title = _clean_string(player.get("media_title") or player.get("attributes", {}).get("media_title"))
+        title = _clean_string(
+            player.get("media_title") or player.get("attributes", {}).get("media_title")
+        )
         if not title:
             return None
         return {
             "media_title": title,
             "name": title,
-            "media_artist": _clean_string(player.get("media_artist") or player.get("attributes", {}).get("media_artist")),
-            "media_album_name": _clean_string(player.get("media_album_name") or player.get("attributes", {}).get("media_album_name")),
-            "media_content_id": _clean_string(player.get("media_content_id") or player.get("attributes", {}).get("media_content_id")),
-            "media_content_type": _clean_string(player.get("media_content_type") or player.get("attributes", {}).get("media_content_type") or "track"),
-            "media_duration": player.get("media_duration") or player.get("attributes", {}).get("media_duration"),
-            "homeii_artwork_url": player.get("homeii_artwork_url") or player.get("attributes", {}).get("homeii_artwork_url"),
-            "image": player.get("homeii_artwork_url") or player.get("entity_picture") or player.get("attributes", {}).get("entity_picture"),
+            "media_artist": _clean_string(
+                player.get("media_artist") or player.get("attributes", {}).get("media_artist")
+            ),
+            "media_album_name": _clean_string(
+                player.get("media_album_name")
+                or player.get("attributes", {}).get("media_album_name")
+            ),
+            "media_content_id": _clean_string(
+                player.get("media_content_id")
+                or player.get("attributes", {}).get("media_content_id")
+            ),
+            "media_content_type": _clean_string(
+                player.get("media_content_type")
+                or player.get("attributes", {}).get("media_content_type")
+                or "track"
+            ),
+            "media_duration": player.get("media_duration")
+            or player.get("attributes", {}).get("media_duration"),
+            "homeii_artwork_url": player.get("homeii_artwork_url")
+            or player.get("attributes", {}).get("homeii_artwork_url"),
+            "image": player.get("homeii_artwork_url")
+            or player.get("entity_picture")
+            or player.get("attributes", {}).get("entity_picture"),
         }
 
     def normalize_queue_response(
@@ -5316,7 +5876,11 @@ class HomeiiFlowRuntime:
     ) -> dict[str, Any]:
         """Return a card-ready queue snapshot from a provider response."""
         root = self._queue_payload_root(response, entity_id)
-        queue_state = root.get("queue_state") if isinstance(root, dict) and isinstance(root.get("queue_state"), dict) else None
+        queue_state = (
+            root.get("queue_state")
+            if isinstance(root, dict) and isinstance(root.get("queue_state"), dict)
+            else None
+        )
         if queue_state is None and isinstance(root, dict) and isinstance(root.get("queue"), dict):
             queue_state = root.get("queue")
         if queue_state is None and isinstance(root, dict):
@@ -5333,19 +5897,30 @@ class HomeiiFlowRuntime:
 
         previous_count = 0
         if isinstance(root, dict):
-            previous_items = root.get("previous_items") or root.get("items_before") or queue_state.get("previous_items") or queue_state.get("items_before")
+            previous_items = (
+                root.get("previous_items")
+                or root.get("items_before")
+                or queue_state.get("previous_items")
+                or queue_state.get("items_before")
+            )
             previous_count = len(previous_items) if isinstance(previous_items, list) else 0
         explicit_index = _maybe_number(
             _dict_first(queue_state, "current_index", "active_index", "index")
             or (root.get("current_index") if isinstance(root, dict) else None)
         )
-        current_index = int(explicit_index) if explicit_index is not None else (None if "current_index" in queue_state else previous_count)
+        current_index = (
+            int(explicit_index)
+            if explicit_index is not None
+            else (None if "current_index" in queue_state else previous_count)
+        )
 
         normalized_items: list[dict[str, Any]] = []
         for index, item in enumerate(raw_items):
             normalized = self.normalize_media_item(
                 item,
-                fallback_media_type=_clean_string(_dict_first(queue_state, "media_type", "media_content_type") or "track"),
+                fallback_media_type=_clean_string(
+                    _dict_first(queue_state, "media_type", "media_content_type") or "track"
+                ),
                 fallback_index=index,
                 player=player,
             )
@@ -5354,20 +5929,33 @@ class HomeiiFlowRuntime:
                 normalized_items.append(normalized)
 
         expected = _maybe_number(
-            _dict_first(queue_state, "items_count", "items", "total", "total_items", "count", "queue_length")
+            _dict_first(
+                queue_state, "items_count", "items", "total", "total_items", "count", "queue_length"
+            )
             or (root.get("items_count") if isinstance(root, dict) else None)
         )
-        item_count = int(expected) if expected is not None and expected >= 0 else len(normalized_items)
+        item_count = (
+            int(expected) if expected is not None and expected >= 0 else len(normalized_items)
+        )
+
         def item_at(index: int | None, key: str) -> dict[str, Any] | None:
             if index is not None and 0 <= index < len(normalized_items):
                 return normalized_items[index]
             raw = queue_state.get(key)
-            return self.normalize_media_item(raw, fallback_index=index or 0) if isinstance(raw, dict) else None
+            return (
+                self.normalize_media_item(raw, fallback_index=index or 0)
+                if isinstance(raw, dict)
+                else None
+            )
 
         current_item = item_at(current_index, "current_item")
-        previous_item = item_at(current_index - 1 if current_index is not None else None, "previous_item")
+        previous_item = item_at(
+            current_index - 1 if current_index is not None else None, "previous_item"
+        )
         next_item = item_at(current_index + 1 if current_index is not None else None, "next_item")
-        root_queue_id = _dict_first(root, "queue_id", "active_queue") if isinstance(root, dict) else ""
+        root_queue_id = (
+            _dict_first(root, "queue_id", "active_queue") if isinstance(root, dict) else ""
+        )
         clean_queue_id = _clean_string(
             queue_id
             or _dict_first(queue_state, "queue_id", "active_queue", "queue")
@@ -5400,9 +5988,7 @@ class HomeiiFlowRuntime:
             "current_item": current_item,
             "previous_item": previous_item,
             "next_item": next_item,
-            "shuffle_enabled": bool(
-                _dict_first(queue_state, "shuffle_enabled", "shuffle")
-            ),
+            "shuffle_enabled": bool(_dict_first(queue_state, "shuffle_enabled", "shuffle")),
             "repeat_mode": _clean_string(_dict_first(queue_state, "repeat_mode", "repeat")),
             "autoplay_enabled": bool(
                 _dict_first(
@@ -5412,18 +5998,12 @@ class HomeiiFlowRuntime:
                     "autoplay",
                 )
             ),
-            "crossfade_enabled": bool(
-                _dict_first(queue_state, "crossfade_enabled", "crossfade")
-            ),
+            "crossfade_enabled": bool(_dict_first(queue_state, "crossfade_enabled", "crossfade")),
             "flow_mode": bool(_dict_first(queue_state, "flow_mode", "flow_mode_enabled")),
             "is_dynamic": bool(_dict_first(queue_state, "is_dynamic", "dynamic")),
             "ended": bool(_dict_first(queue_state, "ended", "finished")),
-            "smart_shuffle_active": bool(
-                _dict_first(queue_state, "smart_shuffle_active")
-            ),
-            "smart_fades_active": bool(
-                _dict_first(queue_state, "smart_fades_active")
-            ),
+            "smart_shuffle_active": bool(_dict_first(queue_state, "smart_shuffle_active")),
+            "smart_fades_active": bool(_dict_first(queue_state, "smart_fades_active")),
             "playback_speed": _dict_first(queue_state, "playback_speed"),
             "overlay_enabled": bool(_dict_first(queue_state, "overlay_enabled")),
             "overlay_source": _dict_first(queue_state, "overlay_source"),
@@ -5433,7 +6013,9 @@ class HomeiiFlowRuntime:
             ),
             "radio_source": _dict_first(queue_state, "radio_source"),
             "elapsed_time": _dict_first(queue_state, "elapsed_time", "media_position", "position"),
-            "elapsed_time_last_updated": _dict_first(queue_state, "elapsed_time_last_updated", "media_position_updated_at"),
+            "elapsed_time_last_updated": _dict_first(
+                queue_state, "elapsed_time_last_updated", "media_position_updated_at"
+            ),
             "raw_keys": list(root.keys())[:24] if isinstance(root, dict) else [],
         }
 
@@ -5453,7 +6035,9 @@ class HomeiiFlowRuntime:
             if number >= 0:
                 return number
         for key in ("response", "data", "queue", "queue_state", "state", "result"):
-            number = HomeiiFlowRuntime._queue_payload_expected_count(value.get(key), depth=depth + 1)
+            number = HomeiiFlowRuntime._queue_payload_expected_count(
+                value.get(key), depth=depth + 1
+            )
             if number:
                 return number
         return 0
@@ -5464,7 +6048,9 @@ class HomeiiFlowRuntime:
         entity_id = str(payload.get("entity_id") or payload.get("selected_player") or "").strip()
         queue_id = str(payload.get("queue_id") or "").strip()
         include_diagnostics = bool(payload.get("include_diagnostics", False))
-        profile_id = str(payload.get("profile_id") or DEFAULT_PROFILE_ID).strip() or DEFAULT_PROFILE_ID
+        profile_id = (
+            str(payload.get("profile_id") or DEFAULT_PROFILE_ID).strip() or DEFAULT_PROFILE_ID
+        )
         player = self._player_snapshot_for_entity(entity_id)
         if not queue_id and player:
             queue_id = _clean_string(
@@ -5506,7 +6092,10 @@ class HomeiiFlowRuntime:
             try:
                 return copy.deepcopy(await asyncio.shield(foreground_task))
             finally:
-                if self._queue_inflight.get(cache_key) is foreground_task and foreground_task.done():
+                if (
+                    self._queue_inflight.get(cache_key) is foreground_task
+                    and foreground_task.done()
+                ):
                     self._queue_inflight.pop(cache_key, None)
         attempts: list[dict[str, Any]] = []
         bridge_results = await self._try_music_queue_command_bridge(
@@ -5547,7 +6136,11 @@ class HomeiiFlowRuntime:
         if include_diagnostics:
             result["data"] = direct.get("response")
             result["responses"] = [
-                {key: value for key, value in item.items() if key not in {"response", "normalized", "score"}}
+                {
+                    key: value
+                    for key, value in item.items()
+                    if key not in {"response", "normalized", "score"}
+                }
                 for item in bridge_results
             ]
         return self._cache_queue_result(
@@ -5626,7 +6219,9 @@ class HomeiiFlowRuntime:
         ).strip()
         if query:
             data["search"] = query
-        profile_id = str(payload.get("profile_id") or DEFAULT_PROFILE_ID).strip() or DEFAULT_PROFILE_ID
+        profile_id = (
+            str(payload.get("profile_id") or DEFAULT_PROFILE_ID).strip() or DEFAULT_PROFILE_ID
+        )
         cache_key = (
             media_type,
             data.get("order_by", ""),
@@ -5647,14 +6242,21 @@ class HomeiiFlowRuntime:
                 if cached.get("persistent"):
                     self._media_cache_metrics["persistent_hits"] += 1
                     cached["persistent"] = False
-                return self._library_response(cached_result | {
-                    "cache": {
-                        "hit": True,
-                        "stale": False,
-                        "source": "engine_memory" if resolved_cache_key == cache_key else "engine_memory_superset",
-                        "ttl": max(0, int(float(cached.get("fresh_until") or 0) - now_mono)),
-                    }
-                }, limit=clean_limit, compact=compact_requested)
+                return self._library_response(
+                    cached_result
+                    | {
+                        "cache": {
+                            "hit": True,
+                            "stale": False,
+                            "source": "engine_memory"
+                            if resolved_cache_key == cache_key
+                            else "engine_memory_superset",
+                            "ttl": max(0, int(float(cached.get("fresh_until") or 0) - now_mono)),
+                        }
+                    },
+                    limit=clean_limit,
+                    compact=compact_requested,
+                )
             if isinstance(cached_result, dict) and float(cached.get("stale_until") or 0) > now_mono:
                 self._media_cache_metrics["stale_hits"] += 1
                 if resolved_cache_key not in self._library_inflight:
@@ -5680,14 +6282,21 @@ class HomeiiFlowRuntime:
                             self._media_cache_metrics["refresh_failures"] += 1
 
                     refresh_task.add_done_callback(finish_refresh)
-                return self._library_response(cached_result | {
-                    "cache": {
-                        "hit": True,
-                        "stale": True,
-                        "source": "engine_stale_while_revalidate" if resolved_cache_key == cache_key else "engine_stale_superset",
-                        "ttl": 0,
-                    }
-                }, limit=clean_limit, compact=compact_requested)
+                return self._library_response(
+                    cached_result
+                    | {
+                        "cache": {
+                            "hit": True,
+                            "stale": True,
+                            "source": "engine_stale_while_revalidate"
+                            if resolved_cache_key == cache_key
+                            else "engine_stale_superset",
+                            "ttl": 0,
+                        }
+                    },
+                    limit=clean_limit,
+                    compact=compact_requested,
+                )
         if not singleflight_owner:
             existing_task = self._library_inflight.get(cache_key)
             if existing_task is not None:
@@ -5708,11 +6317,18 @@ class HomeiiFlowRuntime:
             try:
                 return await asyncio.shield(foreground_task)
             finally:
-                if self._library_inflight.get(cache_key) is foreground_task and foreground_task.done():
+                if (
+                    self._library_inflight.get(cache_key) is foreground_task
+                    and foreground_task.done()
+                ):
                     self._library_inflight.pop(cache_key, None)
         fetch_started = time.perf_counter()
         fetch_revision = self._snapshot_revisions["library"]
-        bridge_response, bridge_items, bridge_attempts = await self._try_music_library_command_bridge(
+        (
+            bridge_response,
+            bridge_items,
+            bridge_attempts,
+        ) = await self._try_music_library_command_bridge(
             media_type=media_type,
             limit=clean_limit,
             offset=offset,
@@ -5736,11 +6352,18 @@ class HomeiiFlowRuntime:
             "source_of_truth": "maverick_music_flow_engine",
             "media_type": media_type,
             "offset": offset,
-            "snapshot": self._snapshot_meta("library", identity=media_type, revision=fetch_revision),
+            "snapshot": self._snapshot_meta(
+                "library", identity=media_type, revision=fetch_revision
+            ),
             "data": bridge_response,
             "items": bridge_items,
             "attempts": bridge_attempts,
-            "cache": {"hit": False, "stale": False, "source": "music_assistant_2_10_api", "ttl": 600 if bridge_items else 30},
+            "cache": {
+                "hit": False,
+                "stale": False,
+                "source": "music_assistant_2_10_api",
+                "ttl": 600 if bridge_items else 30,
+            },
         }
         fresh_ttl = 600 if bridge_items else 30
         stale_ttl = 24 * 60 * 60 if bridge_items else 5 * 60
@@ -5752,7 +6375,9 @@ class HomeiiFlowRuntime:
             "persistent": False,
             "invalidated": False,
         }
-        self._media_cache_metrics["last_fetch_ms"] = round((time.perf_counter() - fetch_started) * 1000, 2)
+        self._media_cache_metrics["last_fetch_ms"] = round(
+            (time.perf_counter() - fetch_started) * 1000, 2
+        )
         self._media_cache_metrics["last_fetch_at"] = _utc_iso()
         self._schedule_media_cache_save()
         return self._library_response(result, limit=clean_limit, compact=compact_requested)
@@ -5800,11 +6425,16 @@ class HomeiiFlowRuntime:
                 if not isinstance(item, dict):
                     continue
                 uri = _clean_string(item.get("uri") or item.get("media_content_id"))
-                key = uri or f"{media_type}:{_clean_string(item.get('name') or item.get('title')).lower()}"
+                key = (
+                    uri
+                    or f"{media_type}:{_clean_string(item.get('name') or item.get('title')).lower()}"
+                )
                 if not key or key in seen:
                     continue
                 seen.add(key)
-                items.append({**item, "media_type": item.get("media_type") or media_type, "favorite": True})
+                items.append(
+                    {**item, "media_type": item.get("media_type") or media_type, "favorite": True}
+                )
         return {
             "provider": "maverick_music_flow_engine.favorites",
             "source_of_truth": "maverick_music_flow_engine",
@@ -5823,13 +6453,12 @@ class HomeiiFlowRuntime:
         """Add or remove a Music Assistant favorite through one Engine contract."""
         favorite = bool(payload.get("favorite", True))
         entry = payload.get("entry") if isinstance(payload.get("entry"), dict) else {}
-        remove_args = payload.get("remove_args") if isinstance(payload.get("remove_args"), dict) else {}
+        remove_args = (
+            payload.get("remove_args") if isinstance(payload.get("remove_args"), dict) else {}
+        )
         uri = _clean_string(payload.get("uri") or entry.get("uri") or entry.get("media_content_id"))
         media_type = _clean_string(
-            payload.get("media_type")
-            or entry.get("media_type")
-            or entry.get("type")
-            or "track"
+            payload.get("media_type") or entry.get("media_type") or entry.get("type") or "track"
         ).lower()
         item_id = _clean_string(payload.get("item_id") or entry.get("item_id") or entry.get("id"))
         provider = _clean_string(
@@ -5878,9 +6507,7 @@ class HomeiiFlowRuntime:
         used_args: dict[str, Any] = {}
         for attempt in attempts:
             clean_args = {
-                key: value
-                for key, value in attempt.items()
-                if value not in (None, "", {})
+                key: value for key, value in attempt.items() if value not in (None, "", {})
             }
             if isinstance(clean_args.get("item"), dict):
                 clean_args["item"] = {
@@ -5902,7 +6529,9 @@ class HomeiiFlowRuntime:
         self._mark_library_cache_stale({media_type} if media_type else None)
         self._mark_media_command_cache_stale()
         self._search_cache.clear()
-        self._bump_snapshot_revision("library", reason=f"favorite:{'add' if favorite else 'remove'}")
+        self._bump_snapshot_revision(
+            "library", reason=f"favorite:{'add' if favorite else 'remove'}"
+        )
         snapshot = self._snapshot_meta("library", identity="favorites")
         event = {
             "kind": "event",
@@ -5926,12 +6555,18 @@ class HomeiiFlowRuntime:
             "executed_at": _utc_iso(),
         }
 
-    def normalize_search_response(self, response: Any, *, media_types: list[str] | None = None) -> dict[str, Any]:
+    def normalize_search_response(
+        self, response: Any, *, media_types: list[str] | None = None
+    ) -> dict[str, Any]:
         """Return normalized grouped and flat search results."""
         decorated = self.decorate_artwork_urls(response)
         groups: dict[str, list[dict[str, Any]]] = {}
         flat_items: list[dict[str, Any]] = []
-        wanted = {str(media_type or "").strip().lower() for media_type in (media_types or []) if str(media_type or "").strip()}
+        wanted = {
+            str(media_type or "").strip().lower()
+            for media_type in (media_types or [])
+            if str(media_type or "").strip()
+        }
         group_aliases = {
             "items": "",
             "media": "",
@@ -5965,18 +6600,36 @@ class HomeiiFlowRuntime:
 
         def add_group(group_key: str, value: Any) -> None:
             fallback_type = group_aliases.get(group_key.lower(), group_key.lower() or "track")
-            if wanted and fallback_type and fallback_type not in wanted and group_key.lower() not in wanted:
+            if (
+                wanted
+                and fallback_type
+                and fallback_type not in wanted
+                and group_key.lower() not in wanted
+            ):
                 return
             items: list[dict[str, Any]] = []
             for index, raw_item in enumerate(_extract_media_items(value)):
                 item_type = _media_item_type(raw_item, fallback_type or "track").lower()
-                if wanted and item_type not in wanted and fallback_type not in wanted and group_key.lower() not in wanted:
+                if (
+                    wanted
+                    and item_type not in wanted
+                    and fallback_type not in wanted
+                    and group_key.lower() not in wanted
+                ):
                     continue
-                normalized_item = self.normalize_media_item(raw_item, fallback_media_type=item_type or fallback_type or "track", fallback_index=index)
+                normalized_item = self.normalize_media_item(
+                    raw_item,
+                    fallback_media_type=item_type or fallback_type or "track",
+                    fallback_index=index,
+                )
                 if normalized_item:
                     items.append(normalized_item)
             if items:
-                output_key = output_groups.get(fallback_type) or output_groups.get(items[0].get("media_type")) or group_key
+                output_key = (
+                    output_groups.get(fallback_type)
+                    or output_groups.get(items[0].get("media_type"))
+                    or group_key
+                )
                 groups.setdefault(output_key, []).extend(items)
                 flat_items.extend(items)
 
@@ -6012,8 +6665,12 @@ class HomeiiFlowRuntime:
             or payload.get("media_type")
             or ["radio", "podcast", "album", "artist", "track", "playlist", "genre"]
         )
-        media_types = [str(media_type).strip() for media_type in media_types if str(media_type).strip()]
-        profile_id = str(payload.get("profile_id") or DEFAULT_PROFILE_ID).strip() or DEFAULT_PROFILE_ID
+        media_types = [
+            str(media_type).strip() for media_type in media_types if str(media_type).strip()
+        ]
+        profile_id = (
+            str(payload.get("profile_id") or DEFAULT_PROFILE_ID).strip() or DEFAULT_PROFILE_ID
+        )
         library_only = bool(payload.get("library_only", False))
         provider_only = bool(payload.get("provider_only", False))
         provider_filter = tuple(
@@ -6093,8 +6750,20 @@ class HomeiiFlowRuntime:
     async def async_apply_group(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Apply group changes using native MA identities, including MA-only players."""
         owner = _clean_string(payload.get("owner") or payload.get("entity_id"))
-        members = list(dict.fromkeys(_clean_string(value) for value in _safe_list(payload.get("members")) if _clean_string(value)))
-        removed = list(dict.fromkeys(_clean_string(value) for value in _safe_list(payload.get("remove_members")) if _clean_string(value)))
+        members = list(
+            dict.fromkeys(
+                _clean_string(value)
+                for value in _safe_list(payload.get("members"))
+                if _clean_string(value)
+            )
+        )
+        removed = list(
+            dict.fromkeys(
+                _clean_string(value)
+                for value in _safe_list(payload.get("remove_members"))
+                if _clean_string(value)
+            )
+        )
         clear_all = bool(payload.get("clear_all"))
         if not owner:
             raise ValueError("group owner is required")
@@ -6102,17 +6771,28 @@ class HomeiiFlowRuntime:
             for entity_id in dict.fromkeys([*members, *removed, owner]):
                 await self.async_player_command({"player": entity_id, "command": "unjoin"})
         else:
-            await self.async_music_assistant_command({
-                "command": "players/cmd/set_members",
-                "args": {
-                    "target_player": self._resolve_ma_player_id(owner),
-                    "player_ids_to_add": [self._resolve_ma_player_id(value) for value in members if value != owner],
-                    "player_ids_to_remove": [self._resolve_ma_player_id(value) for value in removed if value != owner],
-                },
-            })
+            await self.async_music_assistant_command(
+                {
+                    "command": "players/cmd/set_members",
+                    "args": {
+                        "target_player": self._resolve_ma_player_id(owner),
+                        "player_ids_to_add": [
+                            self._resolve_ma_player_id(value) for value in members if value != owner
+                        ],
+                        "player_ids_to_remove": [
+                            self._resolve_ma_player_id(value) for value in removed if value != owner
+                        ],
+                    },
+                }
+            )
         self._stats_cache = None
         self._bump_snapshot_revision("players", "queue", reason="group_apply")
-        result = {"mode": "clear_all" if clear_all else "apply", "owner": owner, "members": members, "remove_members": removed}
+        result = {
+            "mode": "clear_all" if clear_all else "apply",
+            "owner": owner,
+            "members": members,
+            "remove_members": removed,
+        }
         self.hass.bus.async_fire(EVENT_ENGINE_GROUP_APPLY, result)
         async_dispatcher_send(self.hass, SIGNAL_ENGINE_UPDATED)
         return result
@@ -6123,7 +6803,11 @@ class HomeiiFlowRuntime:
         schedules = _safe_list(self._storage.get("schedules"))
         if not clean_profile:
             return schedules
-        return [item for item in schedules if str(item.get("profile_id") or DEFAULT_PROFILE_ID) == clean_profile]
+        return [
+            item
+            for item in schedules
+            if str(item.get("profile_id") or DEFAULT_PROFILE_ID) == clean_profile
+        ]
 
     def timers(self, profile_id: str | None = None) -> list[dict[str, Any]]:
         """Return timers, optionally filtered by profile."""
@@ -6131,7 +6815,11 @@ class HomeiiFlowRuntime:
         timers = _safe_list(self._storage.get("timers"))
         if not clean_profile:
             return timers
-        return [item for item in timers if str(item.get("profile_id") or DEFAULT_PROFILE_ID) == clean_profile]
+        return [
+            item
+            for item in timers
+            if str(item.get("profile_id") or DEFAULT_PROFILE_ID) == clean_profile
+        ]
 
     def volume_rules(self, profile_id: str | None = None) -> list[dict[str, Any]]:
         """Return volume rules, optionally filtered by profile."""
@@ -6139,7 +6827,11 @@ class HomeiiFlowRuntime:
         rules = _safe_list(self._storage.get("volume_rules"))
         if not clean_profile:
             return rules
-        return [item for item in rules if str(item.get("profile_id") or DEFAULT_PROFILE_ID) == clean_profile]
+        return [
+            item
+            for item in rules
+            if str(item.get("profile_id") or DEFAULT_PROFILE_ID) == clean_profile
+        ]
 
     def announcements(self, profile_id: str | None = None) -> list[dict[str, Any]]:
         """Return recorded announcements, optionally filtered by profile."""
@@ -6147,7 +6839,11 @@ class HomeiiFlowRuntime:
         announcements = _safe_list(self._storage.get("announcements"))
         if not clean_profile:
             return announcements
-        return [item for item in announcements if str(item.get("profile_id") or DEFAULT_PROFILE_ID) == clean_profile]
+        return [
+            item
+            for item in announcements
+            if str(item.get("profile_id") or DEFAULT_PROFILE_ID) == clean_profile
+        ]
 
     def activity(self, profile_id: str | None = None) -> list[dict[str, Any]]:
         """Return recent Engine activity, optionally filtered by profile."""
@@ -6155,7 +6851,11 @@ class HomeiiFlowRuntime:
         activity = _safe_list(self._storage.get("activity"))
         if not clean_profile:
             return activity
-        return [item for item in activity if str(item.get("profile_id") or DEFAULT_PROFILE_ID) == clean_profile]
+        return [
+            item
+            for item in activity
+            if str(item.get("profile_id") or DEFAULT_PROFILE_ID) == clean_profile
+        ]
 
     def last_activity(self, profile_id: str | None = None) -> dict[str, Any]:
         """Return the latest Engine activity item."""
@@ -6218,7 +6918,11 @@ class HomeiiFlowRuntime:
             "volume_rule_saved",
             f"Volume rule saved for {player}",
             profile_id=profile_id,
-            data={"player": player, "max_volume": rule.get("max_volume"), "active_now": self._volume_rule_active(rule, _local_datetime())},
+            data={
+                "player": player,
+                "max_volume": rule.get("max_volume"),
+                "active_now": self._volume_rule_active(rule, _local_datetime()),
+            },
         )
         return rule
 
@@ -6226,7 +6930,9 @@ class HomeiiFlowRuntime:
         """Clear volume rules for a profile."""
         before = len(self.volume_rules())
         self._storage["volume_rules"] = [
-            rule for rule in self.volume_rules() if str(rule.get("profile_id") or DEFAULT_PROFILE_ID) != profile_id
+            rule
+            for rule in self.volume_rules()
+            if str(rule.get("profile_id") or DEFAULT_PROFILE_ID) != profile_id
         ]
         removed = before - len(self.volume_rules())
         self._stats_cache = None
@@ -6249,7 +6955,10 @@ class HomeiiFlowRuntime:
         self._storage["volume_rules"] = [
             rule
             for rule in self.volume_rules()
-            if not (str(rule.get("profile_id") or DEFAULT_PROFILE_ID) == profile_id and rule.get("player") == player)
+            if not (
+                str(rule.get("profile_id") or DEFAULT_PROFILE_ID) == profile_id
+                and rule.get("player") == player
+            )
         ]
         removed = before - len(self.volume_rules())
         self._stats_cache = None
@@ -6311,7 +7020,9 @@ class HomeiiFlowRuntime:
         days = [int(day) for day in _safe_list(rule.get("days")) if str(day).strip()]
         if days and _homeii_weekday(now) not in days:
             return False
-        return _time_window_active(now, str(rule.get("start_time") or ""), str(rule.get("end_time") or ""))
+        return _time_window_active(
+            now, str(rule.get("start_time") or ""), str(rule.get("end_time") or "")
+        )
 
     def _preferred_announcement_say_service(self) -> str:
         """Return a usable legacy tts *_say service when tts.speak is not configured."""
@@ -6323,7 +7034,11 @@ class HomeiiFlowRuntime:
 
     def _announcement_targets(self, payload: dict[str, Any]) -> list[str]:
         """Normalize announcement target players."""
-        players = [str(player).strip() for player in _safe_list(payload.get("players")) if str(player).strip()]
+        players = [
+            str(player).strip()
+            for player in _safe_list(payload.get("players"))
+            if str(player).strip()
+        ]
         single_player = str(payload.get("player") or payload.get("entity_id") or "").strip()
         if single_player and single_player not in players:
             players.insert(0, single_player)
@@ -6344,7 +7059,9 @@ class HomeiiFlowRuntime:
         except (TypeError, ValueError):
             announce_volume = None
         language = str(payload.get("language") or "").strip()
-        tts_entity = str(payload.get("tts_entity") or payload.get("announcement_tts_entity") or "").strip()
+        tts_entity = str(
+            payload.get("tts_entity") or payload.get("announcement_tts_entity") or ""
+        ).strip()
         is_url = message.lower().startswith(("http://", "https://"))
         if is_url:
             await self._async_validate_media_reference(message, payload.get("instance_id"))
@@ -6363,9 +7080,22 @@ class HomeiiFlowRuntime:
                         target={"entity_id": player},
                         return_response=False,
                     )
-                    results.append({"player": player, "ok": True, "provider": "music_assistant.play_announcement"})
+                    results.append(
+                        {
+                            "player": player,
+                            "ok": True,
+                            "provider": "music_assistant.play_announcement",
+                        }
+                    )
                 except Exception as err:  # noqa: BLE001 - surfaced in command result
-                    results.append({"player": player, "ok": False, "provider": "music_assistant.play_announcement", "error": str(err)})
+                    results.append(
+                        {
+                            "player": player,
+                            "ok": False,
+                            "provider": "music_assistant.play_announcement",
+                            "error": str(err),
+                        }
+                    )
                 continue
 
             sent = False
@@ -6373,23 +7103,45 @@ class HomeiiFlowRuntime:
             if tts_entity and self.hass.services.has_service("tts", "speak"):
                 try:
                     media_id = tts.generate_media_source_id(
-                        self.hass, message, engine=tts_entity,
-                        language=language or None, cache=False,
+                        self.hass,
+                        message,
+                        engine=tts_entity,
+                        language=language or None,
+                        cache=False,
                     )
                     service_data = {
                         "media_content_id": media_id,
                         "media_content_type": "music",
                         "announce": True,
-                        "extra": {"announce_volume": announce_volume} if announce_volume is not None else {},
+                        "extra": {"announce_volume": announce_volume}
+                        if announce_volume is not None
+                        else {},
                     }
                     await self.async_call_service_response(
-                        "media_player", "play_media", service_data,
-                        target={"entity_id": player}, return_response=False,
+                        "media_player",
+                        "play_media",
+                        service_data,
+                        target={"entity_id": player},
+                        return_response=False,
                     )
-                    results.append({"player": player, "ok": True, "provider": "media_player.play_media", "tts_entity": tts_entity})
+                    results.append(
+                        {
+                            "player": player,
+                            "ok": True,
+                            "provider": "media_player.play_media",
+                            "tts_entity": tts_entity,
+                        }
+                    )
                     sent = True
                 except Exception as err:  # noqa: BLE001 - never replay uncertain audio dispatch
-                    results.append({"player": player, "ok": False, "provider": "media_player.play_media", "error": str(err)})
+                    results.append(
+                        {
+                            "player": player,
+                            "ok": False,
+                            "provider": "media_player.play_media",
+                            "error": str(err),
+                        }
+                    )
                     continue
 
             if sent:
@@ -6414,12 +7166,14 @@ class HomeiiFlowRuntime:
                     last_error = str(err)
 
             if not sent:
-                results.append({
-                    "player": player,
-                    "ok": False,
-                    "provider": "tts",
-                    "error": last_error or "No compatible TTS service/entity is available.",
-                })
+                results.append(
+                    {
+                        "player": player,
+                        "ok": False,
+                        "provider": "tts",
+                        "error": last_error or "No compatible TTS service/entity is available.",
+                    }
+                )
 
         sent_any = any(bool(result.get("ok")) for result in results)
         sent_all = bool(results) and all(bool(result.get("ok")) for result in results)
@@ -6448,7 +7202,9 @@ class HomeiiFlowRuntime:
             data={"players": players, "results": results, "sent": sent_any},
         )
         if not sent_any:
-            errors = "; ".join(str(item.get("error") or "") for item in results if item.get("error"))
+            errors = "; ".join(
+                str(item.get("error") or "") for item in results if item.get("error")
+            )
             raise HomeiiFlowServiceUnavailable(errors or "Announcement could not be sent")
         return result
 
@@ -6467,7 +7223,9 @@ class HomeiiFlowRuntime:
             "sent": bool(payload.get("sent", True)),
             "created_at": _utc_iso(),
         }
-        self._storage["announcements"] = [announcement, *self._storage.get("announcements", [])][:25]
+        self._storage["announcements"] = [announcement, *self._storage.get("announcements", [])][
+            :25
+        ]
         self._last_announcement_action = announcement
         await self.async_save()
         self.hass.bus.async_fire(EVENT_ENGINE_ANNOUNCEMENT, announcement)

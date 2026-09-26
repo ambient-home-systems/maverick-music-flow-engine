@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time as dt_time, timedelta
+from datetime import date, datetime, timedelta
+from datetime import time as dt_time
 from typing import Any
 
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
@@ -14,19 +15,32 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import async_get_runtime
-from .const import CONF_INSTANCE_ID, CONF_PROFILE_ID, DEFAULT_INSTANCE_ID, DEFAULT_PROFILE_ID, DOMAIN, NAME, SIGNAL_ENGINE_UPDATED, VERSION
+from .const import (
+    CONF_INSTANCE_ID,
+    CONF_PROFILE_ID,
+    DEFAULT_INSTANCE_ID,
+    DEFAULT_PROFILE_ID,
+    DOMAIN,
+    NAME,
+    SIGNAL_ENGINE_UPDATED,
+    VERSION,
+)
 from .runtime import HomeiiFlowRuntime, _homeii_weekday, _parse_hhmm, _schedule_days
 
 
 def _profile_id(entry: ConfigEntry) -> str:
     """Return the active profile id for a config entry."""
-    return str(entry.options.get(CONF_PROFILE_ID) or entry.data.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID)
+    return str(
+        entry.options.get(CONF_PROFILE_ID) or entry.data.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID
+    )
 
 
 def _as_local_datetime(value: date | datetime, *, end_of_day: bool = False) -> datetime:
     """Convert a date or datetime into a local timezone-aware datetime."""
     if isinstance(value, datetime):
-        return dt_util.as_local(value if value.tzinfo is not None else value.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE))
+        return dt_util.as_local(
+            value if value.tzinfo is not None else value.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
+        )
     local_time = dt_time.max if end_of_day else dt_time.min
     return datetime.combine(value, local_time, tzinfo=dt_util.DEFAULT_TIME_ZONE)
 
@@ -56,7 +70,9 @@ class HomeiiFlowScheduleCalendar(CalendarEntity):
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to Engine updates."""
-        self.async_on_remove(async_dispatcher_connect(self.hass, SIGNAL_ENGINE_UPDATED, self.async_write_ha_state))
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ENGINE_UPDATED, self.async_write_ha_state)
+        )
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -106,7 +122,9 @@ class HomeiiFlowScheduleCalendar(CalendarEntity):
         cursor = start.date()
         end_day = end.date()
         for schedule in self._runtime.schedules(profile_id):
-            events.extend(self._schedule_events(schedule, cursor, end_day, start, end, limit - len(events)))
+            events.extend(
+                self._schedule_events(schedule, cursor, end_day, start, end, limit - len(events))
+            )
             if len(events) >= limit:
                 break
         events.sort(key=lambda event: event.start)
@@ -131,7 +149,9 @@ class HomeiiFlowScheduleCalendar(CalendarEntity):
         events: list[CalendarEvent] = []
         day = start_day
         while day <= end_day and len(events) < limit:
-            event_start = datetime.combine(day, dt_time(parsed_time[0], parsed_time[1]), tzinfo=dt_util.DEFAULT_TIME_ZONE)
+            event_start = datetime.combine(
+                day, dt_time(parsed_time[0], parsed_time[1]), tzinfo=dt_util.DEFAULT_TIME_ZONE
+            )
             if (not days or _homeii_weekday(event_start) in days) and start <= event_start <= end:
                 events.append(self._calendar_event(schedule, event_start))
             day += timedelta(days=1)
@@ -139,7 +159,12 @@ class HomeiiFlowScheduleCalendar(CalendarEntity):
 
     def _calendar_event(self, schedule: dict[str, Any], event_start: datetime) -> CalendarEvent:
         """Build one Home Assistant calendar event."""
-        name = str(schedule.get("name") or schedule.get("media_name") or schedule.get("playlist_name") or "HOMEii schedule")
+        name = str(
+            schedule.get("name")
+            or schedule.get("media_name")
+            or schedule.get("playlist_name")
+            or "HOMEii schedule"
+        )
         media_name = str(schedule.get("media_name") or schedule.get("playlist_name") or "").strip()
         player = str(schedule.get("player") or "").strip()
         volume = schedule.get("volume")

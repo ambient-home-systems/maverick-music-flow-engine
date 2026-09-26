@@ -188,7 +188,11 @@ def _split_base(url: Any) -> tuple[str, str, int] | None:
         port = parts.port
     except ValueError:
         return None
-    return parts.scheme, parts.hostname.lower().rstrip("."), port or (443 if parts.scheme == "https" else 80)
+    return (
+        parts.scheme,
+        parts.hostname.lower().rstrip("."),
+        port or (443 if parts.scheme == "https" else 80),
+    )
 
 
 def url_matches_base(url: Any, base: Any) -> bool:
@@ -240,7 +244,9 @@ def artwork_fetch_urls(source: str, ma_base_urls: list[str], ha_base_url: str = 
                         f"{provider}/{image_path}".encode(),
                         usedforsecurity=False,
                     ).hexdigest()
-                    candidates.append(f"{parsed.scheme}://{parsed.netloc}/imageproxy/{image_id}?size=512")
+                    candidates.append(
+                        f"{parsed.scheme}://{parsed.netloc}/imageproxy/{image_id}?size=512"
+                    )
                     candidates.extend(f"{base}/imageproxy/{image_id}?size=512" for base in bases)
     else:
         if clean.startswith(("/imageproxy", "imageproxy")):
@@ -253,7 +259,11 @@ def artwork_fetch_urls(source: str, ma_base_urls: list[str], ha_base_url: str = 
             candidates.extend(f"{base}/imageproxy?path={quote(clean)}&size=512" for base in bases)
             if ha_base:
                 candidates.append(f"{ha_base}/{quote(clean.lstrip('/'))}")
-    return [candidate for index, candidate in enumerate(candidates) if candidate and candidate not in candidates[:index]]
+    return [
+        candidate
+        for index, candidate in enumerate(candidates)
+        if candidate and candidate not in candidates[:index]
+    ]
 
 
 async def _async_read_limited(stream: Any) -> bytes | None:
@@ -306,7 +316,9 @@ class ArtworkFetcher:
         if is_blocked_hostname(host):
             return None
         send_bearer = any(url_matches_base(url, base) for base in self._ma_base_urls)
-        trusted = send_bearer or (bool(self._ha_base_url) and url_matches_base(url, self._ha_base_url))
+        trusted = send_bearer or (
+            bool(self._ha_base_url) and url_matches_base(url, self._ha_base_url)
+        )
         if not trusted:
             try:
                 literal = ipaddress.ip_address(host.split("%", 1)[0])

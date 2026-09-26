@@ -11,11 +11,20 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 
 from . import async_get_runtime
-from .const import CONF_INSTANCE_ID, CONF_PROFILE_ID, DEFAULT_INSTANCE_ID, DEFAULT_PROFILE_ID, DOMAIN, NAME, SIGNAL_ENGINE_UPDATED, VERSION
+from .const import (
+    CONF_INSTANCE_ID,
+    CONF_PROFILE_ID,
+    DEFAULT_INSTANCE_ID,
+    DEFAULT_PROFILE_ID,
+    DOMAIN,
+    NAME,
+    SIGNAL_ENGINE_UPDATED,
+    VERSION,
+)
 from .runtime import HomeiiFlowRuntime, _utc_iso
 
 
@@ -62,7 +71,9 @@ BUTTONS: tuple[HomeiiFlowButtonDescription, ...] = (
 
 def _profile_id(entry: ConfigEntry) -> str:
     """Return the active profile id for a config entry."""
-    return str(entry.options.get(CONF_PROFILE_ID) or entry.data.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID)
+    return str(
+        entry.options.get(CONF_PROFILE_ID) or entry.data.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID
+    )
 
 
 def _schedule_key(schedule: dict[str, Any], profile_id: str) -> str:
@@ -103,7 +114,9 @@ async def async_setup_entry(
             async_add_entities(entities)
 
     add_missing_schedule_buttons()
-    entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_ENGINE_UPDATED, add_missing_schedule_buttons))
+    entry.async_on_unload(
+        async_dispatcher_connect(hass, SIGNAL_ENGINE_UPDATED, add_missing_schedule_buttons)
+    )
 
 
 def _remove_stale_schedule_buttons(
@@ -274,7 +287,9 @@ class HomeiiFlowScheduleRunButton(ButtonEntity):
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to runtime updates."""
-        self.async_on_remove(async_dispatcher_connect(self.hass, SIGNAL_ENGINE_UPDATED, self._handle_engine_update))
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ENGINE_UPDATED, self._handle_engine_update)
+        )
 
     def remove_from_registry(self) -> None:
         """Remove this button from Home Assistant's entity registry."""
@@ -304,7 +319,11 @@ class HomeiiFlowScheduleRunButton(ButtonEntity):
     def name(self) -> str | None:
         """Return the button name."""
         schedule = self._schedule()
-        return f"Run now: {schedule.get('name') or self._schedule_id}" if schedule else f"Run now: {self._schedule_id}"
+        return (
+            f"Run now: {schedule.get('name') or self._schedule_id}"
+            if schedule
+            else f"Run now: {self._schedule_id}"
+        )
 
     @property
     def available(self) -> bool:
@@ -358,6 +377,9 @@ class HomeiiFlowScheduleRunButton(ButtonEntity):
     def _schedule(self) -> dict[str, Any] | None:
         """Return the backing schedule."""
         for schedule in self._runtime.schedules(self._profile_id):
-            if str(schedule.get("id") or schedule.get("schedule_id") or "").strip() == self._schedule_id:
+            if (
+                str(schedule.get("id") or schedule.get("schedule_id") or "").strip()
+                == self._schedule_id
+            ):
                 return schedule
         return None

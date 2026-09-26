@@ -61,7 +61,9 @@ SENSORS: tuple[HomeiiFlowSensorDescription, ...] = (
         name="Required connections",
         icon="mdi:connection",
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda runtime, entry: runtime.required_connections_snapshot().get("status") or "unknown",
+        value_fn=lambda runtime, entry: (
+            runtime.required_connections_snapshot().get("status") or "unknown"
+        ),
         attrs_fn=lambda runtime, entry: runtime.required_connections_snapshot(),
     ),
     HomeiiFlowSensorDescription(
@@ -69,7 +71,9 @@ SENSORS: tuple[HomeiiFlowSensorDescription, ...] = (
         name="Required connection Music Assistant",
         icon="mdi:music-circle",
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda runtime, entry: _connection(runtime, "music_assistant").get("status") or "unknown",
+        value_fn=lambda runtime, entry: (
+            _connection(runtime, "music_assistant").get("status") or "unknown"
+        ),
         attrs_fn=lambda runtime, entry: _connection(runtime, "music_assistant"),
     ),
     HomeiiFlowSensorDescription(
@@ -77,7 +81,9 @@ SENSORS: tuple[HomeiiFlowSensorDescription, ...] = (
         name="Required connection Queue",
         icon="mdi:playlist-music",
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda runtime, entry: _connection(runtime, "queue_provider").get("status") or "unknown",
+        value_fn=lambda runtime, entry: (
+            _connection(runtime, "queue_provider").get("status") or "unknown"
+        ),
         attrs_fn=lambda runtime, entry: _connection(runtime, "queue_provider"),
     ),
     HomeiiFlowSensorDescription(
@@ -85,7 +91,9 @@ SENSORS: tuple[HomeiiFlowSensorDescription, ...] = (
         name="Required connection Library",
         icon="mdi:library",
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda runtime, entry: _connection(runtime, "library_provider").get("status") or "unknown",
+        value_fn=lambda runtime, entry: (
+            _connection(runtime, "library_provider").get("status") or "unknown"
+        ),
         attrs_fn=lambda runtime, entry: _connection(runtime, "library_provider"),
     ),
     HomeiiFlowSensorDescription(
@@ -93,7 +101,9 @@ SENSORS: tuple[HomeiiFlowSensorDescription, ...] = (
         name="Required connection Search",
         icon="mdi:magnify",
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda runtime, entry: _connection(runtime, "search_provider").get("status") or "unknown",
+        value_fn=lambda runtime, entry: (
+            _connection(runtime, "search_provider").get("status") or "unknown"
+        ),
         attrs_fn=lambda runtime, entry: _connection(runtime, "search_provider"),
     ),
     HomeiiFlowSensorDescription(
@@ -122,7 +132,9 @@ SENSORS: tuple[HomeiiFlowSensorDescription, ...] = (
         key="active_player",
         name="Active player",
         icon="mdi:speaker-play",
-        value_fn=lambda runtime, entry: runtime.cached_stats().get("active_player_entity") or "none",
+        value_fn=lambda runtime, entry: (
+            runtime.cached_stats().get("active_player_entity") or "none"
+        ),
         attrs_fn=lambda runtime, entry: {
             "active_player": runtime.cached_stats().get("active_player") or {},
             "playing_entities": runtime.cached_stats().get("playing_entities", []),
@@ -170,7 +182,9 @@ SENSORS: tuple[HomeiiFlowSensorDescription, ...] = (
         key="next_schedule",
         name="Next schedule",
         icon="mdi:calendar-start",
-        value_fn=lambda runtime, entry: runtime.next_schedule_summary(_profile_id(entry)).get("next_run") or "none",
+        value_fn=lambda runtime, entry: (
+            runtime.next_schedule_summary(_profile_id(entry)).get("next_run") or "none"
+        ),
         attrs_fn=lambda runtime, entry: {
             "next_schedule": runtime.next_schedule_summary(_profile_id(entry)),
             "schedules": runtime.schedule_summaries(_profile_id(entry)),
@@ -196,7 +210,9 @@ SENSORS: tuple[HomeiiFlowSensorDescription, ...] = (
         key="next_timer",
         name="Next timer",
         icon="mdi:timer-play-outline",
-        value_fn=lambda runtime, entry: runtime.next_timer_summary(_profile_id(entry)).get("ends_at") or "none",
+        value_fn=lambda runtime, entry: (
+            runtime.next_timer_summary(_profile_id(entry)).get("ends_at") or "none"
+        ),
         attrs_fn=lambda runtime, entry: {
             "next_timer": runtime.next_timer_summary(_profile_id(entry)),
             "timers": runtime.timer_summaries(_profile_id(entry)),
@@ -244,7 +260,9 @@ SENSORS: tuple[HomeiiFlowSensorDescription, ...] = (
         key="last_activity",
         name="Last activity",
         icon="mdi:timeline-clock-outline",
-        value_fn=lambda runtime, entry: runtime.last_activity(_profile_id(entry)).get("message") or "none",
+        value_fn=lambda runtime, entry: (
+            runtime.last_activity(_profile_id(entry)).get("message") or "none"
+        ),
         attrs_fn=lambda runtime, entry: {
             "last_activity": runtime.last_activity(_profile_id(entry)),
         },
@@ -276,7 +294,9 @@ SENSORS: tuple[HomeiiFlowSensorDescription, ...] = (
         key="top_player_today",
         name="Top player today",
         icon="mdi:trophy-outline",
-        value_fn=lambda runtime, entry: runtime.playback_statistics().get("top_player_today", {}).get("friendly_name") or "none",
+        value_fn=lambda runtime, entry: (
+            runtime.playback_statistics().get("top_player_today", {}).get("friendly_name") or "none"
+        ),
         attrs_fn=lambda runtime, entry: runtime.playback_statistics().get("top_player_today", {}),
         force_update=True,
     ),

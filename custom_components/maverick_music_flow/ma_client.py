@@ -7,7 +7,6 @@ import contextlib
 import logging
 import secrets
 import time
-
 from collections.abc import Callable
 from typing import Any
 

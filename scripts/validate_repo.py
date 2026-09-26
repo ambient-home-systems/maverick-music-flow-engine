@@ -117,7 +117,7 @@ def main() -> None:
         "Home Assistant library fallback": 'async_call_service_response("music_assistant", "get_library"',
         "Home Assistant queue fallback": 'async_call_service_response("music_assistant", "get_queue"',
         "legacy mass_queue fallback": '"domain": "mass_queue"',
-        "schedule media_play fallback": 'fallback_action',
+        "schedule media_play fallback": "fallback_action",
     }
     for label, marker in forbidden_runtime_paths.items():
         if marker in runtime_text:

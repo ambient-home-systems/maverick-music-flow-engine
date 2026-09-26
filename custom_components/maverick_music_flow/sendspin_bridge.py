@@ -1,4 +1,5 @@
 """Authenticated HA-to-MA Sendspin transport; MA credentials stay on the server."""
+
 from __future__ import annotations
 
 import asyncio
@@ -158,19 +159,32 @@ class HomeiiFlowSendspinView(HomeAssistantView):
         finally:
             self.registry.release_session(user_id)
 
-    async def _relay(self, runtime, request: web.Request, client_id: str, base_url: str, token: str):
+    async def _relay(
+        self, runtime, request: web.Request, client_id: str, base_url: str, token: str
+    ):
         parts = urlsplit(base_url)
-        upstream_url = urlunsplit(("wss" if parts.scheme == "https" else "ws", parts.netloc,
-                                   parts.path.rstrip("/") + "/sendspin", "", ""))
+        upstream_url = urlunsplit(
+            (
+                "wss" if parts.scheme == "https" else "ws",
+                parts.netloc,
+                parts.path.rstrip("/") + "/sendspin",
+                "",
+                "",
+            )
+        )
         session = async_get_clientsession(self.hass)
         upstream = None
         try:
             async with asyncio.timeout(12):
-                upstream = await session.ws_connect(upstream_url, heartbeat=30, max_msg_size=4 * 1024 * 1024)
+                upstream = await session.ws_connect(
+                    upstream_url, heartbeat=30, max_msg_size=4 * 1024 * 1024
+                )
                 await upstream.send_json({"type": "auth", "token": token, "client_id": client_id})
                 auth = await upstream.receive_json()
                 if not isinstance(auth, dict) or auth.get("type") != "auth_ok":
-                    raise web.HTTPBadGateway(text="Music Assistant rejected the Sendspin connection")
+                    raise web.HTTPBadGateway(
+                        text="Music Assistant rejected the Sendspin connection"
+                    )
         except asyncio.CancelledError:
             if upstream is not None:
                 await upstream.close()
@@ -193,10 +207,18 @@ class HomeiiFlowSendspinView(HomeAssistantView):
                 close_code = WSCloseCode.GOING_AWAY
                 return downstream
             # Tracked by the runtime, so unloading the Engine closes open relays.
-            tasks = [runtime.async_create_tracked_task(relay_frames(upstream, downstream),
-                                                       "maverick_music_flow_sendspin_relay", background=True),
-                     runtime.async_create_tracked_task(relay_client_frames(downstream, upstream, client_id),
-                                                       "maverick_music_flow_sendspin_relay", background=True)]
+            tasks = [
+                runtime.async_create_tracked_task(
+                    relay_frames(upstream, downstream),
+                    "maverick_music_flow_sendspin_relay",
+                    background=True,
+                ),
+                runtime.async_create_tracked_task(
+                    relay_client_frames(downstream, upstream, client_id),
+                    "maverick_music_flow_sendspin_relay",
+                    background=True,
+                ),
+            ]
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 if task.cancelled():
@@ -210,6 +232,7 @@ class HomeiiFlowSendspinView(HomeAssistantView):
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
-            await asyncio.gather(upstream.close(), downstream.close(code=close_code),
-                                 return_exceptions=True)
+            await asyncio.gather(
+                upstream.close(), downstream.close(code=close_code), return_exceptions=True
+            )
         return downstream

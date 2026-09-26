@@ -1,6 +1,7 @@
 """Validated MA queue switches shared by HA service commands."""
-from typing import Any
+
 import math
+from typing import Any
 
 
 def build_playback_speed(queue_id: str, payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -16,6 +17,7 @@ def build_playback_speed(queue_id: str, payload: dict[str, Any]) -> tuple[str, d
         raise ValueError("Playback speed must be between 0.5 and 3.0")
     return "player_queues/set_playback_speed", {"queue_id": queue_id, "speed": speed}
 
+
 _QUEUE_SWITCHES = {
     "autoplay": ("player_queues/autoplay", "autoplay_enabled"),
     "autoplay_set": ("player_queues/autoplay", "autoplay_enabled"),
@@ -24,7 +26,10 @@ _QUEUE_SWITCHES = {
     "crossfade_set": ("player_queues/crossfade", "crossfade_enabled"),
 }
 
-def build_queue_switch(command: str, queue_id: str, payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+
+def build_queue_switch(
+    command: str, queue_id: str, payload: dict[str, Any]
+) -> tuple[str, dict[str, Any]]:
     """Build one explicit queue mutation without interpreting strings as booleans."""
     if command not in _QUEUE_SWITCHES:
         raise ValueError(f"Unsupported queue switch: {command}")

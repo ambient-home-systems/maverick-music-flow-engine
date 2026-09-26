@@ -9,4 +9,3 @@ class HomeiiFlowEngineError(Exception):
 
 class HomeiiFlowServiceUnavailable(HomeiiFlowEngineError):
     """Raised when a requested Home Assistant service is unavailable."""
-

@@ -7,18 +7,11 @@ from typing import Any
 
 import voluptuous as vol
 from aiohttp import ClientError, ClientTimeout
-
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import AbortFlow
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers import selector
-from .onboarding_auth import (
-    create_onboarding_token,
-    is_ha_interface_url,
-    onboarding_endpoint,
-    revoke_onboarding_token,
-)
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
     CONF_ALLOW_LOCAL_MEDIA_URLS,
@@ -35,6 +28,12 @@ from .const import (
     DEFAULT_PROFILE_ID,
     DOMAIN,
     MUSIC_ASSISTANT_SCHEMA_MIN,
+)
+from .onboarding_auth import (
+    create_onboarding_token,
+    is_ha_interface_url,
+    onboarding_endpoint,
+    revoke_onboarding_token,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -184,7 +183,9 @@ def _player_choices(runtime: Any | None) -> dict[str, str]:
         key=lambda item: str(item.get("friendly_name") or item.get("entity_id") or ""),
     )
     return {
-        str(player["entity_id"]): f"{player.get('friendly_name') or player['entity_id']} ({player['entity_id']})"
+        str(
+            player["entity_id"]
+        ): f"{player.get('friendly_name') or player['entity_id']} ({player['entity_id']})"
         for player in players
     }
 
@@ -265,17 +266,25 @@ class HomeiiFlowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except ValueError as err:
                 errors[CONF_MUSIC_ASSISTANT_URL] = str(err)
             else:
-                server_error = await _validate_music_assistant_server(self.hass, music_assistant_url)
+                server_error = await _validate_music_assistant_server(
+                    self.hass, music_assistant_url
+                )
                 if server_error:
                     errors["base"] = server_error
             if not errors:
                 self._automatic_url = music_assistant_url
                 self._automatic_instance_id = instance_id
                 return await self.async_step_automatic_login()
-        return self.async_show_form(step_id="automatic", data_schema=vol.Schema({
-            vol.Required(CONF_MUSIC_ASSISTANT_URL): str,
-            vol.Optional(CONF_INSTANCE_ID, default=DEFAULT_INSTANCE_ID): str,
-        }), errors=errors)
+        return self.async_show_form(
+            step_id="automatic",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_MUSIC_ASSISTANT_URL): str,
+                    vol.Optional(CONF_INSTANCE_ID, default=DEFAULT_INSTANCE_ID): str,
+                }
+            ),
+            errors=errors,
+        )
 
     async def async_step_automatic_login(self, user_input=None):
         """Create a dedicated token using MA built-in credentials."""
@@ -290,7 +299,11 @@ class HomeiiFlowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     str(user_input.get("password") or ""),
                 )
             except ValueError as err:
-                errors["base"] = str(err) if str(err) in {"invalid_url", "unsupported_ma_version", "ma_ingress_url"} else "automatic_login_failed"
+                errors["base"] = (
+                    str(err)
+                    if str(err) in {"invalid_url", "unsupported_ma_version", "ma_ingress_url"}
+                    else "automatic_login_failed"
+                )
             except (ClientError, TimeoutError):
                 errors["base"] = "cannot_connect"
             else:
@@ -316,10 +329,12 @@ class HomeiiFlowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         insecure = self._automatic_url.lower().startswith("http://")
         return self.async_show_form(
             step_id="automatic_login_http" if insecure else "automatic_login",
-            data_schema=vol.Schema({
-                vol.Required("username"): str,
-                vol.Required("password"): PASSWORD_SELECTOR,
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Required("username"): str,
+                    vol.Required("password"): PASSWORD_SELECTOR,
+                }
+            ),
             errors=errors,
         )
 
@@ -369,24 +384,20 @@ class HomeiiFlowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             instance_id = str(user_input.get(CONF_INSTANCE_ID) or DEFAULT_INSTANCE_ID).strip()
-            music_assistant_url = str(
-                user_input.get(CONF_MUSIC_ASSISTANT_URL) or ""
-            ).strip()
+            music_assistant_url = str(user_input.get(CONF_MUSIC_ASSISTANT_URL) or "").strip()
             music_assistant_external_url = str(
                 user_input.get(CONF_MUSIC_ASSISTANT_EXTERNAL_URL) or ""
             ).strip()
-            music_assistant_token = str(
-                user_input.get(CONF_MUSIC_ASSISTANT_TOKEN) or ""
-            ).strip()
+            music_assistant_token = str(user_input.get(CONF_MUSIC_ASSISTANT_TOKEN) or "").strip()
             if not instance_id:
                 errors[CONF_INSTANCE_ID] = "required"
             if is_ha_interface_url(music_assistant_url):
                 errors[CONF_MUSIC_ASSISTANT_URL] = "ma_ingress_url"
-            if music_assistant_url and not music_assistant_url.startswith(
-                ("http://", "https://")
-            ):
+            if music_assistant_url and not music_assistant_url.startswith(("http://", "https://")):
                 errors[CONF_MUSIC_ASSISTANT_URL] = "invalid_url"
-            if music_assistant_external_url and not music_assistant_external_url.startswith("https://"):
+            if music_assistant_external_url and not music_assistant_external_url.startswith(
+                "https://"
+            ):
                 errors[CONF_MUSIC_ASSISTANT_EXTERNAL_URL] = "invalid_external_url"
             if not music_assistant_url:
                 errors[CONF_MUSIC_ASSISTANT_URL] = "required"
@@ -473,7 +484,9 @@ class HomeiiFlowOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema({vol.Required("action", default="general"): vol.In(MENU_OPTIONS)}),
+            data_schema=vol.Schema(
+                {vol.Required("action", default="general"): vol.In(MENU_OPTIONS)}
+            ),
         )
 
     async def async_step_general(
@@ -483,9 +496,7 @@ class HomeiiFlowOptionsFlow(config_entries.OptionsFlow):
         """Manage general options."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            music_assistant_url = str(
-                user_input.get(CONF_MUSIC_ASSISTANT_URL) or ""
-            ).strip()
+            music_assistant_url = str(user_input.get(CONF_MUSIC_ASSISTANT_URL) or "").strip()
             music_assistant_external_url = str(
                 user_input.get(CONF_MUSIC_ASSISTANT_EXTERNAL_URL) or ""
             ).strip()
@@ -496,11 +507,11 @@ class HomeiiFlowOptionsFlow(config_entries.OptionsFlow):
             effective_token = entered_token or existing_token
             if is_ha_interface_url(music_assistant_url):
                 errors[CONF_MUSIC_ASSISTANT_URL] = "ma_ingress_url"
-            if music_assistant_url and not music_assistant_url.startswith(
-                ("http://", "https://")
-            ):
+            if music_assistant_url and not music_assistant_url.startswith(("http://", "https://")):
                 errors[CONF_MUSIC_ASSISTANT_URL] = "invalid_url"
-            if music_assistant_external_url and not music_assistant_external_url.startswith("https://"):
+            if music_assistant_external_url and not music_assistant_external_url.startswith(
+                "https://"
+            ):
                 errors[CONF_MUSIC_ASSISTANT_EXTERNAL_URL] = "invalid_external_url"
             if not music_assistant_url:
                 errors[CONF_MUSIC_ASSISTANT_URL] = "required"
@@ -613,8 +624,12 @@ class HomeiiFlowOptionsFlow(config_entries.OptionsFlow):
             step_id="add_volume_rule",
             data_schema=vol.Schema(
                 {
-                    vol.Required("player"): vol.In(players or {"": "No Music Assistant players detected"}),
-                    vol.Required("max_volume", default=50): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+                    vol.Required("player"): vol.In(
+                        players or {"": "No Music Assistant players detected"}
+                    ),
+                    vol.Required("max_volume", default=50): vol.All(
+                        vol.Coerce(int), vol.Range(min=0, max=100)
+                    ),
                     vol.Optional("start_time", default=""): str,
                     vol.Optional("end_time", default=""): str,
                     vol.Optional("days", default=""): str,
@@ -639,7 +654,10 @@ class HomeiiFlowOptionsFlow(config_entries.OptionsFlow):
                 errors["base"] = "no_volume_rules"
             else:
                 await runtime.async_delete_volume_rule(
-                    {CONF_PROFILE_ID: _profile_id(self._config_entry), "player": user_input["player"]}
+                    {
+                        CONF_PROFILE_ID: _profile_id(self._config_entry),
+                        "player": user_input["player"],
+                    }
                 )
                 return await self.async_step_init()
 
@@ -692,7 +710,9 @@ class HomeiiFlowOptionsFlow(config_entries.OptionsFlow):
                 {
                     vol.Optional("id", default=""): str,
                     vol.Optional("name", default=""): str,
-                    vol.Required("player"): vol.In(players or {"": "No Music Assistant players detected"}),
+                    vol.Required("player"): vol.In(
+                        players or {"": "No Music Assistant players detected"}
+                    ),
                     vol.Required("media_id"): str,
                     vol.Required("media_type", default="music"): vol.In(MEDIA_TYPES),
                     vol.Required("time"): str,
@@ -797,9 +817,15 @@ class HomeiiFlowOptionsFlow(config_entries.OptionsFlow):
             data_schema=vol.Schema(
                 {
                     vol.Optional("id", default=""): str,
-                    vol.Required("player"): vol.In(players or {"": "No Music Assistant players detected"}),
-                    vol.Required("action", default="stop"): vol.In({"stop": "Stop", "pause": "Pause"}),
-                    vol.Required("minutes", default=30): vol.All(vol.Coerce(int), vol.Range(min=1, max=1440)),
+                    vol.Required("player"): vol.In(
+                        players or {"": "No Music Assistant players detected"}
+                    ),
+                    vol.Required("action", default="stop"): vol.In(
+                        {"stop": "Stop", "pause": "Pause"}
+                    ),
+                    vol.Required("minutes", default=30): vol.All(
+                        vol.Coerce(int), vol.Range(min=1, max=1440)
+                    ),
                     vol.Optional("enabled", default=True): bool,
                 }
             ),
