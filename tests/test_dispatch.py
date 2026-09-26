@@ -11,7 +11,7 @@ source = Path(__file__).resolve().parents[1] / "custom_components/maverick_music
 tree = ast.parse(source.read_text(encoding="utf-8"))
 cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "HomeiiFlowRuntime")
 cls.decorator_list = []
-cls.body = [n for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in {"_async_validate_media_reference", "local_media_urls_allowed", "async_send_announcement", "async_transfer_queue", "async_player_command", "async_apply_group", "async_execute_timer", "_async_execute_timer_once", "async_queue_action"}]
+cls.body = [n for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in {"_async_validate_media_reference", "local_media_urls_allowed", "async_send_announcement", "async_transfer_queue", "async_player_command", "async_apply_group", "async_execute_timer", "_async_execute_timer_once", "async_queue_action", "async_create_tracked_task"}]
 module = ast.Module(body=[ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0), cls], type_ignores=[])
 async def _public_resolver(_host, _port):
     return ["93.184.215.14"]
@@ -134,6 +134,8 @@ class TimerExecutionTests(unittest.IsolatedAsyncioTestCase):
     async def test_concurrent_and_completed_catchup_execute_only_once(self):
         r = Runtime()
         r.hass = SimpleNamespace(async_create_task=asyncio.create_task)
+        r._active = True
+        r._background_tasks = set()
         r._timer_execution_tasks = {}
         r.async_call_service_response = AsyncMock()
         r.async_record_activity = AsyncMock()
@@ -149,6 +151,8 @@ class TimerExecutionTests(unittest.IsolatedAsyncioTestCase):
     async def test_uncertain_timer_failure_is_not_replayed(self):
         r = Runtime()
         r.hass = SimpleNamespace(async_create_task=asyncio.create_task)
+        r._active = True
+        r._background_tasks = set()
         r._timer_execution_tasks = {}
         r.async_call_service_response = AsyncMock(side_effect=TimeoutError("uncertain"))
         r.async_record_activity = AsyncMock()

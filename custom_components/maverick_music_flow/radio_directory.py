@@ -52,7 +52,7 @@ async def search_stations(runtime, payload):
         while len(cache)>32: cache.pop(next(iter(cache)))
         return data[:limit]
     if key not in runtime._radio_directory_pending:
-        runtime._radio_directory_pending[key]=asyncio.create_task(fetch())
+        runtime._radio_directory_pending[key]=runtime.async_create_tracked_task(fetch(),'maverick_music_flow_radio_directory')
     task=runtime._radio_directory_pending[key]
     try:
         data=await asyncio.shield(task)

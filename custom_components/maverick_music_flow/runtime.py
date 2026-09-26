@@ -15,7 +15,7 @@ import logging
 import secrets
 import time
 
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -61,6 +61,9 @@ from .ma_client import MusicAssistantEventClient
 from .media_url_policy import async_validate_media_reference, command_media_references
 
 _LOGGER = logging.getLogger(__name__)
+
+# How long unload waits for cancelled tasks, so a stuck task cannot block it.
+SHUTDOWN_TASK_TIMEOUT = 10
 
 # Opaque artwork tokens slide on every use. The Engine's own detail cache serves stale
 # responses for up to 24 hours, so tokens outlive the longest cached response.
@@ -699,7 +702,9 @@ class HomeiiScheduleRunner:
         if due_at is not None:
             run_key = self.runtime._schedule_run_key(self.schedule, due_at)
             if self.runtime._last_schedule_runs.get(self.key) != run_key:
-                self.runtime.hass.async_create_task(self.async_fire(due_at, trigger="catchup"))
+                self.runtime.async_create_tracked_task(
+                    self.async_fire(due_at, trigger="catchup"), "maverick_music_flow_schedule_catchup"
+                )
                 return
             lookup_now = local_now + timedelta(seconds=121)
 
@@ -713,7 +718,9 @@ class HomeiiScheduleRunner:
 
         @callback
         def timer_finished(now_value: datetime) -> None:
-            self.runtime.hass.async_create_task(self.async_fire(_local_datetime(now_value), trigger="timer"))
+            self.runtime.async_create_tracked_task(
+                self.async_fire(_local_datetime(now_value), trigger="timer"), "maverick_music_flow_schedule_timer"
+            )
 
         self._timer_unsub = async_track_point_in_time(self.runtime.hass, timer_finished, run_at_utc)
         self.runtime._schedule_unsubs[self.key] = self._timer_unsub
@@ -813,7 +820,9 @@ class HomeiiScheduleManager:
             self.state = "ready"
             self.ready_at = _local_datetime().isoformat()
             self.reschedule_all()
-            self.runtime.hass.async_create_task(self.runtime.async_tick_orchestration(trigger="scheduler_ready"))
+            self.runtime.async_create_tracked_task(
+                self.runtime.async_tick_orchestration(trigger="scheduler_ready"), "maverick_music_flow_tick"
+            )
             async_dispatcher_send(self.runtime.hass, SIGNAL_ENGINE_UPDATED)
 
         self._ready_unsub = async_call_later(self.runtime.hass, 10, mark_ready)
@@ -965,6 +974,10 @@ class HomeiiFlowRuntime:
             MEDIA_CACHE_STORAGE_KEY,
         )
         self._entries: dict[str, EngineEntry] = {}
+        # True while at least one config entry is loaded; see async_start/async_shutdown.
+        self._active = False
+        self._loaded = False
+        self._background_tasks: set[asyncio.Task[Any]] = set()
         self._storage: dict[str, Any] = {
             "schedules": [],
             "timers": [],
@@ -1013,6 +1026,7 @@ class HomeiiFlowRuntime:
         self._media_command_cache: dict[str, dict[str, Any]] = {}
         self._media_command_inflight: dict[str, asyncio.Task[dict[str, Any]]] = {}
         self._media_cache_save_unsub: Callable[[], None] | None = None
+        self._media_cache_save_task: asyncio.Task[None] | None = None
         self._media_cache_warm_unsub: Callable[[], None] | None = None
         self._media_cache_warm_task: asyncio.Task[None] | None = None
         self._media_cache_metrics: dict[str, Any] = {
@@ -1671,13 +1685,15 @@ class HomeiiFlowRuntime:
 
     def _schedule_media_cache_save(self) -> None:
         """Debounce persistent cache writes away from foreground requests."""
-        if self._media_cache_save_unsub is not None:
+        if self._media_cache_save_unsub is not None or not self._active:
             return
 
         @callback
         def save_later(_: datetime) -> None:
             self._media_cache_save_unsub = None
-            self.hass.async_create_task(self._async_save_media_cache())
+            self._media_cache_save_task = self.async_create_tracked_task(
+                self._async_save_media_cache(), "maverick_music_flow_media_cache_save"
+            )
 
         self._media_cache_save_unsub = async_call_later(self.hass, 2, save_later)
 
@@ -1782,7 +1798,7 @@ class HomeiiFlowRuntime:
 
     def _schedule_media_cache_warm(self) -> None:
         """Warm common library shelves after startup without delaying setup."""
-        if self._media_cache_warm_unsub is not None or (
+        if not self._active or self._media_cache_warm_unsub is not None or (
             self._media_cache_warm_task is not None and not self._media_cache_warm_task.done()
         ):
             return
@@ -1790,7 +1806,9 @@ class HomeiiFlowRuntime:
         @callback
         def warm_later(_: datetime) -> None:
             self._media_cache_warm_unsub = None
-            self._media_cache_warm_task = self.hass.async_create_task(self._async_warm_media_cache())
+            self._media_cache_warm_task = self.async_create_tracked_task(
+                self._async_warm_media_cache(), "maverick_music_flow_media_cache_warm"
+            )
 
         self._media_cache_warm_unsub = async_call_later(self.hass, 3, warm_later)
 
@@ -1853,7 +1871,101 @@ class HomeiiFlowRuntime:
             self._storage["artwork_token_secret"] = self._artwork_token_secret.hex()
             await self._store.async_save(self._storage)
         await self._async_load_media_cache()
+
+    @property
+    def active(self) -> bool:
+        """Return whether a config entry is loaded and the Engine is running."""
+        return self._active
+
+    def async_create_tracked_task(
+        self,
+        target: Coroutine[Any, Any, Any],
+        name: str,
+        *,
+        background: bool = False,
+    ) -> asyncio.Task[Any]:
+        """Start a task that async_shutdown cancels when the last config entry unloads.
+
+        background=True is for long-lived tasks (Sendspin relays) that Home Assistant must
+        not wait for in async_block_till_done or while it stops.
+        """
+        if not self._active:
+            target.close()
+            raise HomeiiFlowServiceUnavailable("HOMEii Flow Engine is not loaded")
+        if background:
+            task = self.hass.async_create_background_task(target, name=name)
+        else:
+            task = self.hass.async_create_task(target, name=name)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
+
+    async def async_start(self) -> None:
+        """Load storage once, then start orchestration and artwork lighting.
+
+        Every config entry setup calls this. Only the first call after a shutdown starts
+        anything, so a second entry or a reload never duplicates timers or listeners.
+        """
+        if self._active:
+            return
+        if not self._loaded:
+            await self.async_load()
+            self._loaded = True
+        self._active = True
         self.artwork_lighting.start()
+        self.async_start_orchestration()
+
+    async def async_shutdown(self) -> None:
+        """Stop all Engine work after the last config entry unloads.
+
+        HTTP views and WebSocket commands cannot be removed from Home Assistant, and the
+        actions are registered in async_setup, so all of them check ``active`` and refuse
+        requests until an entry loads again. Stored data stays in memory for that start.
+        """
+        if not self._active:
+            return
+        self._active = False
+        self.async_stop_orchestration()
+        self.artwork_lighting.stop()
+        if self._media_cache_warm_unsub is not None:
+            self._media_cache_warm_unsub()
+            self._media_cache_warm_unsub = None
+        flush_media_cache = self._media_cache_save_unsub is not None
+        if self._media_cache_save_unsub is not None:
+            self._media_cache_save_unsub()
+            self._media_cache_save_unsub = None
+        # Let a cache write that already started finish instead of racing it below.
+        save_task = self._media_cache_save_task
+        if save_task is not None and not save_task.done():
+            await asyncio.wait({save_task}, timeout=SHUTDOWN_TASK_TIMEOUT)
+        await self._async_cancel_background_tasks()
+        await self._music_assistant_client.async_stop()
+        # The next caller after a reload must never await a cancelled request.
+        self._queue_inflight.clear()
+        self._library_inflight.clear()
+        self._media_command_inflight.clear()
+        self._timer_execution_tasks.clear()
+        getattr(self, "_radio_directory_pending", {}).clear()
+        # A cancelled task may have changed storage without saving it, and playback
+        # statistics are only saved every few minutes.
+        await self._store.async_save(self._storage)
+        if flush_media_cache:
+            await self._async_save_media_cache()
+
+    async def _async_cancel_background_tasks(self) -> None:
+        """Cancel every tracked task and wait for it to finish."""
+        tasks = [task for task in self._background_tasks if not task.done()]
+        for task in tasks:
+            task.cancel()
+        if not tasks:
+            return
+        _done, pending = await asyncio.wait(tasks, timeout=SHUTDOWN_TASK_TIMEOUT)
+        if pending:
+            _LOGGER.warning(
+                "%s HOMEii Flow Engine task(s) did not stop within %s seconds",
+                len(pending),
+                SHUTDOWN_TASK_TIMEOUT,
+            )
 
     def async_start_orchestration(self) -> None:
         """Start lightweight schedule and policy enforcement."""
@@ -1864,11 +1976,15 @@ class HomeiiFlowRuntime:
 
         @callback
         def tick(now: datetime) -> None:
-            self.hass.async_create_task(self.async_tick_orchestration(now, trigger="interval"))
+            self.async_create_tracked_task(
+                self.async_tick_orchestration(now, trigger="interval"), "maverick_music_flow_tick"
+            )
 
         @callback
         def minute_tick(now: datetime) -> None:
-            self.hass.async_create_task(self.async_tick_orchestration(now, trigger="minute"))
+            self.async_create_tracked_task(
+                self.async_tick_orchestration(now, trigger="minute"), "maverick_music_flow_tick"
+            )
 
         self._last_start_at = _local_datetime().isoformat()
         self._orchestration_unsub = async_track_time_interval(self.hass, tick, timedelta(seconds=30))
@@ -1898,12 +2014,16 @@ class HomeiiFlowRuntime:
     def _schedule_background_tick(self, delay: int | float, trigger: str) -> None:
         """Schedule one orchestration pass without depending on the card being open."""
         if delay <= 0:
-            self.hass.async_create_task(self.async_tick_orchestration(trigger=trigger))
+            self.async_create_tracked_task(
+                self.async_tick_orchestration(trigger=trigger), "maverick_music_flow_tick"
+            )
             return
 
         @callback
         def run_once(now: datetime) -> None:
-            self.hass.async_create_task(self.async_tick_orchestration(now, trigger=trigger))
+            self.async_create_tracked_task(
+                self.async_tick_orchestration(now, trigger=trigger), "maverick_music_flow_tick"
+            )
 
         self._delayed_tick_unsubs.append(async_call_later(self.hass, delay, run_once))
 
@@ -1923,6 +2043,9 @@ class HomeiiFlowRuntime:
 
     async def async_tick_orchestration(self, now: datetime | None = None, *, trigger: str = "manual") -> dict[str, Any]:
         """Run one orchestration pass."""
+        if not self._active:
+            # Nothing may act on schedules, timers or volume rules once the entry unloads.
+            return {"generated_at": _utc_iso(), "local_time": self._last_tick_at, "schedules": [], "timers": [], "volume_rules": []}
         local_now = _local_datetime(now)
         self._last_tick_at = local_now.isoformat()
         self._last_tick_trigger = trigger
@@ -2040,7 +2163,9 @@ class HomeiiFlowRuntime:
             finally:
                 async_dispatcher_send(self.hass, SIGNAL_ENGINE_UPDATED)
 
-        self._ma_health_probe_task = self.hass.async_create_task(probe())
+        self._ma_health_probe_task = self.async_create_tracked_task(
+            probe(), "maverick_music_flow_music_assistant_probe"
+        )
 
     def _mark_library_cache_stale(self, media_types: set[str] | None = None) -> None:
         """Expire matching cache entries without discarding usable snapshots."""
@@ -4343,7 +4468,9 @@ class HomeiiFlowRuntime:
         task = self._timer_execution_tasks.get(key)
         if task is None:
             # Claim before yielding: activity updates can re-enter this method.
-            task = self.hass.async_create_task(self._async_execute_timer_once(dict(timer)))
+            task = self.async_create_tracked_task(
+                self._async_execute_timer_once(dict(timer)), "maverick_music_flow_timer"
+            )
             self._timer_execution_tasks[key] = task
             if len(self._timer_execution_tasks) > 128:
                 for old_key, old_task in list(self._timer_execution_tasks.items()):
@@ -4748,12 +4875,13 @@ class HomeiiFlowRuntime:
                         self._media_cache_metrics.get("command_stale_hits") or 0
                     ) + 1
                     if cache_key not in self._media_command_inflight:
-                        task = self.hass.async_create_task(
+                        task = self.async_create_tracked_task(
                             self.async_music_assistant_command(
                                 payload,
                                 cache_worker=True,
                                 cache_refresh=True,
-                            )
+                            ),
+                            "maverick_music_flow_media_command_refresh",
                         )
                         self._media_command_inflight[cache_key] = task
                         task.add_done_callback(
@@ -4767,12 +4895,13 @@ class HomeiiFlowRuntime:
             self._media_cache_metrics["command_misses"] = int(
                 self._media_cache_metrics.get("command_misses") or 0
             ) + 1
-            task = self.hass.async_create_task(
+            task = self.async_create_tracked_task(
                 self.async_music_assistant_command(
                     payload,
                     cache_worker=True,
                     cache_refresh=cache_refresh,
-                )
+                ),
+                "maverick_music_flow_media_command",
             )
             self._media_command_inflight[cache_key] = task
             try:
@@ -5369,8 +5498,9 @@ class HomeiiFlowRuntime:
             existing_task = self._queue_inflight.get(cache_key)
             if existing_task is not None:
                 return copy.deepcopy(await asyncio.shield(existing_task))
-            foreground_task = self.hass.async_create_task(
-                self.async_get_queue({**payload, "_singleflight_owner": True})
+            foreground_task = self.async_create_tracked_task(
+                self.async_get_queue({**payload, "_singleflight_owner": True}),
+                "maverick_music_flow_queue",
             )
             self._queue_inflight[cache_key] = foreground_task
             try:
@@ -5529,14 +5659,15 @@ class HomeiiFlowRuntime:
                 self._media_cache_metrics["stale_hits"] += 1
                 if resolved_cache_key not in self._library_inflight:
                     self._media_cache_metrics["background_refreshes"] += 1
-                    refresh_task = self.hass.async_create_task(
+                    refresh_task = self.async_create_tracked_task(
                         self.async_get_library(
                             {
                                 **payload,
                                 "_refresh": True,
                                 "_singleflight_owner": True,
                             }
-                        )
+                        ),
+                        "maverick_music_flow_library_refresh",
                     )
                     self._library_inflight[resolved_cache_key] = refresh_task
 
@@ -5563,14 +5694,15 @@ class HomeiiFlowRuntime:
                 self._media_cache_metrics["coalesced"] += 1
                 return await asyncio.shield(existing_task)
             self._media_cache_metrics["misses"] += 1
-            foreground_task = self.hass.async_create_task(
+            foreground_task = self.async_create_tracked_task(
                 self.async_get_library(
                     {
                         **payload,
                         "_refresh": refresh_requested,
                         "_singleflight_owner": True,
                     }
-                )
+                ),
+                "maverick_music_flow_library",
             )
             self._library_inflight[cache_key] = foreground_task
             try:

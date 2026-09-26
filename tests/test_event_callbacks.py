@@ -2,15 +2,17 @@
 import ast
 import asyncio
 import time
+from collections.abc import Coroutine
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest import IsolatedAsyncioTestCase, main
 from unittest.mock import AsyncMock
 
 SOURCE=Path(__file__).resolve().parents[1]/'custom_components/maverick_music_flow/runtime.py'
 tree=ast.parse(SOURCE.read_text(encoding='utf-8'))
-methods={'async_start_orchestration','_schedule_background_tick','_schedule_media_cache_save','_schedule_media_cache_warm','_async_warm_media_cache'}
+methods={'async_start_orchestration','_schedule_background_tick','_schedule_media_cache_save','_schedule_media_cache_warm','_async_warm_media_cache','async_create_tracked_task'}
 cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='HomeiiFlowRuntime')
 cls.body=[n for n in cls.body if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name in methods]
 registered=[]
@@ -20,23 +22,25 @@ def callback(func):
 def register(hass, *args, **kwargs):
     registered.append(next(arg for arg in args if callable(arg)))
     return lambda:None
-ns=dict(time=time,_utc_iso=lambda:"now",callback=callback,asyncio=asyncio,datetime=datetime,timedelta=timedelta,_local_datetime=lambda:datetime.now(UTC),async_call_later=register,async_track_time_interval=register,async_track_time_change=register)
+ns=dict(Any=Any,Coroutine=Coroutine,time=time,_utc_iso=lambda:"now",callback=callback,asyncio=asyncio,datetime=datetime,timedelta=timedelta,_local_datetime=lambda:datetime.now(UTC),async_call_later=register,async_track_time_interval=register,async_track_time_change=register)
 exec(compile(ast.fix_missing_locations(ast.Module(body=[cls],type_ignores=[])),str(SOURCE),'exec'),ns)
 
 class CallbackTests(IsolatedAsyncioTestCase):
     def setUp(self):
         registered.clear()
         self.tasks=[]
-        def create_task(coro):
+        def create_task(coro, name=None):
             try: loop=asyncio.get_running_loop()
             except RuntimeError:
                 coro.close()
                 raise
-            task=loop.create_task(coro)
+            task=loop.create_task(coro, name=name)
             self.tasks.append(task)
             return task
         self.runtime=ns['HomeiiFlowRuntime']()
         self.runtime.hass=SimpleNamespace(async_create_task=create_task)
+        self.runtime._active=True
+        self.runtime._background_tasks=set()
         self.runtime._orchestration_unsub=None
         self.runtime._schedule_manager=SimpleNamespace(start=lambda:None)
         self.runtime._delayed_tick_unsubs=[]

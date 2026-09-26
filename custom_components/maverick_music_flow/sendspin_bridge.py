@@ -10,7 +10,7 @@ from aiohttp import WSCloseCode, WSMsgType, web
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import DOMAIN
+from .const import DOMAIN, NOT_LOADED_MESSAGE
 
 # Persisted {client_id: HA user id}. The first user to connect with a client_id owns it.
 SENDSPIN_CLIENTS_STORAGE_KEY = "sendspin_clients"
@@ -142,6 +142,8 @@ class HomeiiFlowSendspinView(HomeAssistantView):
         if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", client_id):
             raise web.HTTPBadRequest(text="Invalid player id")
         runtime = self.hass.data[DOMAIN]["runtime"]
+        if not runtime.active:
+            raise web.HTTPServiceUnavailable(text=NOT_LOADED_MESSAGE)
         urls = runtime.music_assistant_base_urls()
         tokens = runtime.music_assistant_tokens()
         if not urls or not tokens:
@@ -152,11 +154,11 @@ class HomeiiFlowSendspinView(HomeAssistantView):
         if not self.registry.acquire_session(user_id):
             raise web.HTTPTooManyRequests(text="Too many local playback connections")
         try:
-            return await self._relay(request, client_id, urls[0], tokens[0])
+            return await self._relay(runtime, request, client_id, urls[0], tokens[0])
         finally:
             self.registry.release_session(user_id)
 
-    async def _relay(self, request: web.Request, client_id: str, base_url: str, token: str):
+    async def _relay(self, runtime, request: web.Request, client_id: str, base_url: str, token: str):
         parts = urlsplit(base_url)
         upstream_url = urlunsplit(("wss" if parts.scheme == "https" else "ws", parts.netloc,
                                    parts.path.rstrip("/") + "/sendspin", "", ""))
@@ -186,10 +188,20 @@ class HomeiiFlowSendspinView(HomeAssistantView):
         try:
             await downstream.prepare(request)
             await downstream.send_json({"type": "auth_ok"})
-            tasks = [asyncio.create_task(relay_frames(upstream, downstream)),
-                     asyncio.create_task(relay_client_frames(downstream, upstream, client_id))]
+            if not runtime.active:
+                # The Engine unloaded during the handshake.
+                close_code = WSCloseCode.GOING_AWAY
+                return downstream
+            # Tracked by the runtime, so unloading the Engine closes open relays.
+            tasks = [runtime.async_create_tracked_task(relay_frames(upstream, downstream),
+                                                       "maverick_music_flow_sendspin_relay", background=True),
+                     runtime.async_create_tracked_task(relay_client_frames(downstream, upstream, client_id),
+                                                       "maverick_music_flow_sendspin_relay", background=True)]
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
+                if task.cancelled():
+                    close_code = WSCloseCode.GOING_AWAY
+                    continue
                 try:
                     task.result()
                 except SendspinIdentityError:

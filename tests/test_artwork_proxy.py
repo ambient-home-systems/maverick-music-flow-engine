@@ -40,6 +40,14 @@ class HTTPError(Exception):
         self.text = text
 
 
+class NotFound(HTTPError):
+    pass
+
+
+class ServiceUnavailable(HTTPError):
+    pass
+
+
 class Response:
     """Stand-in for aiohttp.web.Response."""
 
@@ -130,7 +138,10 @@ def load_views():
     )
     ns = dict(
         hashlib=hashlib, Any=Any, HomeAssistantView=object, HomeAssistant=object, HomeiiFlowRuntime=object,
-        web=SimpleNamespace(Response=Response, HTTPNotFound=HTTPError, Request=object),
+        web=SimpleNamespace(
+            Response=Response, HTTPNotFound=NotFound, HTTPServiceUnavailable=ServiceUnavailable, Request=object
+        ),
+        NOT_LOADED_MESSAGE="HOMEii Flow Engine is not loaded",
         ArtworkFetcher=PROXY["ArtworkFetcher"], ArtworkPayload=PROXY["ArtworkPayload"],
         artwork_fetch_urls=PROXY["artwork_fetch_urls"], ARTWORK_SECURITY_HEADERS=PROXY["ARTWORK_SECURITY_HEADERS"],
     )
@@ -497,6 +508,7 @@ class ViewTests(IsolatedAsyncioTestCase):
     def runtime(self, sources=None, cached=None, players=()):
         cache_calls = []
         runtime = SimpleNamespace(
+            active=True,
             resolve_artwork_source=lambda token: (sources or {}).get(token, ""),
             cached_artwork_content=lambda source: (cached or {}).get(source),
             cache_artwork_content=lambda source, body, content_type: cache_calls.append((source, body, content_type)),
@@ -572,6 +584,25 @@ class ViewTests(IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPError):
             await self.item_view().get(self.request, "tok")
         self.assertEqual(self.trusted.calls + self.strict.calls, [])
+
+    async def test_views_refuse_while_no_entry_is_loaded(self):
+        source = f"{self.MA}/imageproxy/abc?size=512"
+        player = {"entity_id": "media_player.kitchen", "entity_picture": source, "artwork_candidates": []}
+        runtime = self.runtime(sources={"tok": source}, cached={source: (JPEG, "image/jpeg")}, players=[player])
+        runtime.active = False
+        self.trusted.routes[source] = image(JPEG, "image/jpeg")
+        # The login-free route answers exactly like an unknown token.
+        with self.assertRaises(NotFound) as caught:
+            await self.item_view().get(self.request, "tok")
+        self.assertEqual(caught.exception.text, "artwork token not found or expired")
+        with self.assertRaises(ServiceUnavailable) as caught:
+            await self.entity_view().get(self.request, "media_player.kitchen")
+        self.assertEqual(caught.exception.text, "HOMEii Flow Engine is not loaded")
+        runtime.async_get_queue.assert_not_awaited()
+        self.assertEqual(self.trusted.calls + self.strict.calls + runtime.cache_calls, [])
+        runtime.active = True
+        response = await self.item_view().get(self.request, "tok")
+        self.assertEqual(response.body, JPEG)
 
     async def test_entity_view_resolves_its_own_item_urls_locally(self):
         source = f"{self.MA}/imageproxy/abc?size=512"

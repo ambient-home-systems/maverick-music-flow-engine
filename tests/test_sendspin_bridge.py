@@ -15,6 +15,7 @@ class HTTPError(Exception):
     def __init__(self, text=''): super().__init__(text)
 class HTTPForbidden(HTTPError): pass
 class HTTPTooManyRequests(HTTPError): pass
+class HTTPServiceUnavailable(HTTPError): pass
 class Socket:
     def __init__(self, frames=()):
         self.frames = frames
@@ -30,10 +31,11 @@ class Socket:
         return iterate()
 
 kinds = SimpleNamespace(TEXT=1, BINARY=2, ERROR=3, CLOSE=4, CLOSED=5)
-close_codes = SimpleNamespace(OK=1000, POLICY_VIOLATION=1008)
-web = SimpleNamespace(HTTPException=HTTPError, HTTPBadRequest=HTTPError, HTTPBadGateway=HTTPError, HTTPServiceUnavailable=HTTPError,
+close_codes = SimpleNamespace(OK=1000, GOING_AWAY=1001, POLICY_VIOLATION=1008)
+web = SimpleNamespace(HTTPException=HTTPError, HTTPBadRequest=HTTPError, HTTPBadGateway=HTTPError, HTTPServiceUnavailable=HTTPServiceUnavailable,
                       HTTPForbidden=HTTPForbidden, HTTPTooManyRequests=HTTPTooManyRequests)
-ns = dict(asyncio=asyncio, json=json, re=re, urlsplit=urlsplit, urlunsplit=urlunsplit, DOMAIN='maverick_music_flow', WSMsgType=kinds,
+ns = dict(asyncio=asyncio, json=json, re=re, urlsplit=urlsplit, urlunsplit=urlunsplit, DOMAIN='maverick_music_flow',
+          NOT_LOADED_MESSAGE='HOMEii Flow Engine is not loaded', WSMsgType=kinds,
           WSCloseCode=close_codes, web=web, HomeAssistantView=object)
 nodes = [ast.ImportFrom(module='__future__',names=[ast.alias(name='annotations')],level=0)]
 nodes += [n for n in tree.body if isinstance(n, (ast.Assign, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))]
@@ -50,8 +52,13 @@ class BridgeTests(IsolatedAsyncioTestCase):
         web.WebSocketResponse = lambda **_: self.down
         self.ws_connect = AsyncMock(return_value=self.up)
         ns['async_get_clientsession'] = lambda _: SimpleNamespace(ws_connect=self.ws_connect)
+        self.tracked = []
+        def track(coro, name, *, background=False):
+            self.assertTrue(background)  # relays must not hold up Home Assistant's shutdown
+            self.tracked.append(asyncio.create_task(coro, name=name))
+            return self.tracked[-1]
         self.runtime = SimpleNamespace(music_assistant_base_urls=lambda:['http://ma:8095'],music_assistant_tokens=lambda:['server-secret'],
-                                       _storage={}, async_save=AsyncMock())
+                                       _storage={}, async_save=AsyncMock(), active=True, async_create_tracked_task=track)
         self.users = {'alice', 'bob'}
         auth = SimpleNamespace(async_get_user=AsyncMock(side_effect=lambda uid: SimpleNamespace(id=uid) if uid in self.users else None))
         self.view = ns['HomeiiFlowSendspinView'](SimpleNamespace(data={'maverick_music_flow':{'runtime':self.runtime}}, auth=auth))
@@ -83,6 +90,42 @@ class BridgeTests(IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError): await self.view.get(request('alice'),'device')
         self.up.close.assert_awaited_once()
         self.down.close.assert_awaited_once()
+    # Engine lifecycle
+    async def test_refused_while_no_entry_is_loaded(self):
+        self.runtime.active = False
+        with self.assertRaises(HTTPServiceUnavailable) as caught: await self.view.get(request('alice'),'device')
+        self.assertEqual(str(caught.exception), 'HOMEii Flow Engine is not loaded')
+        self.ws_connect.assert_not_awaited()
+        self.runtime.async_save.assert_not_awaited()
+    async def test_unloading_the_engine_closes_open_relays(self):
+        release = asyncio.Event()
+        class Blocking(Socket):
+            def __aiter__(self):
+                async def iterate():
+                    await release.wait()
+                    return
+                    yield
+                return iterate()
+        self.up, self.down = Blocking(), Blocking()
+        self.ws_connect.return_value = self.up
+        web.WebSocketResponse = lambda **_: self.down
+        relay = asyncio.create_task(self.view.get(request('alice'),'alice-device'))
+        while len(self.tracked) < 2: await asyncio.sleep(0)
+        for task in self.tracked: task.cancel()  # what the runtime does on unload
+        await asyncio.wait_for(relay, 1)
+        self.down.close.assert_awaited_once_with(code=close_codes.GOING_AWAY)
+        self.up.close.assert_awaited_once()
+        self.assertTrue(all(task.done() for task in self.tracked))
+        self.assertEqual(self.view.registry._sessions, {})
+    async def test_unload_during_handshake_closes_without_relaying(self):
+        async def unload(_message): self.runtime.active = False
+        self.down.send_json.side_effect = unload
+        self.down.frames = [hello('alice-device')]
+        await self.view.get(request('alice'),'alice-device')
+        self.assertEqual(self.tracked, [])
+        self.up.send_str.assert_not_awaited()
+        self.down.close.assert_awaited_once_with(code=close_codes.GOING_AWAY)
+        self.up.close.assert_awaited_once()
     async def test_rejects_invalid_client_path(self):
         with self.assertRaises(HTTPError): await self.view.get(request('alice'),'../invalid')
         self.up.send_json.assert_not_awaited()

@@ -21,6 +21,7 @@ from homeassistant.exceptions import (
     Unauthorized,
     UnknownUser,
 )
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.service import async_register_admin_service
@@ -62,6 +63,7 @@ from .const import (
     DEFAULT_INSTANCE_ID,
     DEFAULT_PROFILE_ID,
     DOMAIN,
+    NOT_LOADED_MESSAGE,
     PLATFORMS,
 )
 from .queue_settings import FIELD_TYPES
@@ -71,6 +73,8 @@ from .interface_preferences import save_preferences
 
 _LOGGER = logging.getLogger(__name__)
 FRONTEND_DIR = Path(__file__).parent / "frontend"
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 SERVICE_SET_VOLUME_RULE = "set_volume_rule"
 SERVICE_DELETE_VOLUME_RULE = "delete_volume_rule"
@@ -359,6 +363,8 @@ class HomeiiFlowArtworkProxyView(HomeAssistantView):
     async def get(self, request: web.Request, entity_id: str) -> web.Response:
         """Return current artwork for a media player entity."""
         runtime = async_get_runtime(self.hass)
+        if not runtime.active:
+            raise web.HTTPServiceUnavailable(text=NOT_LOADED_MESSAGE)
         player = next(
             (
                 item
@@ -449,6 +455,9 @@ class HomeiiFlowItemArtworkProxyView(HomeiiFlowArtworkProxyView):
     async def get(self, request: web.Request, token: str) -> web.Response:
         """Return artwork for an opaque Engine token."""
         runtime = async_get_runtime(self.hass)
+        # This route needs no login, so an unloaded Engine answers like an unknown token.
+        if not runtime.active:
+            raise web.HTTPNotFound(text="artwork token not found or expired")
         source = runtime.resolve_artwork_source(token)
         if not source:
             raise web.HTTPNotFound(text="artwork token not found or expired")
@@ -485,6 +494,9 @@ class HomeiiFlowCommandView(HomeAssistantView):
 
     async def post(self, request: web.Request, command: str) -> web.Response:
         """Run one allowed Engine command for clients that cannot use WebSocket."""
+        runtime = async_get_runtime(self.hass)
+        if not runtime.active:
+            raise web.HTTPServiceUnavailable(text=NOT_LOADED_MESSAGE)
         clean_command = str(command or "").strip().strip("/")
         schema = HTTP_COMMAND_SCHEMAS.get(clean_command)
         if schema is None:
@@ -501,7 +513,6 @@ class HomeiiFlowCommandView(HomeAssistantView):
             raise web.HTTPBadRequest(text=f"invalid request: {err}") from err
         # "type" is the WebSocket command type the card also sends over HTTP.
         payload.pop("type", None)
-        runtime = async_get_runtime(self.hass)
         if clean_command == "ma/command" and not music_assistant_command_allowed(
             str(payload["command"]).strip()
         ):
@@ -542,14 +553,31 @@ class HomeiiFlowCommandView(HomeAssistantView):
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up HOMEii Flow Engine."""
-    await async_prepare_runtime(hass)
+    """Register the Engine actions; everything else starts with a config entry.
+
+    Actions are registered here so automations using them validate even while the entry
+    is not loaded; they then raise a "not loaded" error.
+    """
+    _async_register_services(hass)
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up HOMEii Flow Engine from a config entry."""
-    runtime = await async_prepare_runtime(hass)
+    try:
+        runtime = await async_start_runtime(hass)
+        _register_entry(runtime, entry)
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except Exception:
+        # Home Assistant does not call async_unload_entry after a failed setup.
+        await _async_release_runtime(hass, entry.entry_id)
+        raise
+    entry.async_on_unload(entry.add_update_listener(_async_update_entry))
+    return True
+
+
+def _register_entry(runtime: HomeiiFlowRuntime, entry: ConfigEntry) -> None:
+    """Pass a config entry's settings to the runtime."""
     instance_id = str(entry.data.get(CONF_INSTANCE_ID) or DEFAULT_INSTANCE_ID)
     profile_id = str(entry.options.get(CONF_PROFILE_ID) or entry.data.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID)
     enable_experimental = bool(entry.options.get(CONF_ENABLE_EXPERIMENTAL, False))
@@ -582,9 +610,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         allow_non_admin_management=allow_non_admin_management,
         allow_local_media_urls=allow_local_media_urls,
     )
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    entry.async_on_unload(entry.add_update_listener(_async_update_entry))
-    return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -592,9 +617,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if not unload_ok:
         return False
-    runtime = async_get_runtime(hass)
-    runtime.unregister_entry(entry.entry_id)
+    await _async_release_runtime(hass, entry.entry_id)
     return True
+
+
+async def _async_release_runtime(hass: HomeAssistant, entry_id: str) -> None:
+    """Forget a config entry and stop all Engine work when it was the last one."""
+    runtime = async_get_runtime(hass)
+    runtime.unregister_entry(entry_id)
+    if not runtime.entries:
+        await runtime.async_shutdown()
 
 
 async def _async_update_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -613,14 +645,16 @@ def async_get_runtime(hass: HomeAssistant) -> HomeiiFlowRuntime:
     return runtime
 
 
-async def async_prepare_runtime(hass: HomeAssistant) -> HomeiiFlowRuntime:
-    """Return a loaded runtime with Engine services and websocket commands registered."""
+async def async_start_runtime(hass: HomeAssistant) -> HomeiiFlowRuntime:
+    """Start the shared runtime and register its WebSocket commands and HTTP views once.
+
+    Home Assistant cannot unregister views, static paths or WebSocket commands, so they
+    stay registered after the last entry unloads and refuse requests while the runtime
+    is not active.
+    """
     data = hass.data.setdefault(DOMAIN, {})
     runtime = async_get_runtime(hass)
-    if not data.get("runtime_loaded"):
-        await runtime.async_load()
-        data["runtime_loaded"] = True
-    runtime.async_start_orchestration()
+    await runtime.async_start()
     if not data.get("websocket_registered"):
         async_register_websocket_commands(hass)
         data["websocket_registered"] = True
@@ -635,11 +669,15 @@ async def async_prepare_runtime(hass: HomeAssistant) -> HomeiiFlowRuntime:
         hass.http.register_view(HomeiiFlowCommandView(hass))
         hass.http.register_view(HomeiiFlowSendspinView(hass))
         data["artwork_proxy_registered"] = True
-    if not data.get("services_registered"):
-        _async_register_services(hass)
-        data["services_registered"] = True
-    _LOGGER.debug("HOMEii Flow Engine runtime prepared")
+    _LOGGER.debug("HOMEii Flow Engine runtime started")
     return runtime
+
+
+def _async_require_loaded(hass: HomeAssistant) -> None:
+    """Raise ServiceValidationError while no config entry is loaded."""
+    runtime = hass.data.get(DOMAIN, {}).get("runtime")
+    if runtime is None or not runtime.active:
+        raise ServiceValidationError(translation_domain=DOMAIN, translation_key="not_loaded")
 
 
 async def _async_check_service_access(hass: HomeAssistant, service: str, call: ServiceCall) -> None:
@@ -697,6 +735,7 @@ def _async_register_guarded_service(
         return
 
     async def guarded(call: ServiceCall) -> None:
+        _async_require_loaded(hass)
         await _async_check_service_access(hass, service, call)
         await handler(call)
 
@@ -760,6 +799,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
             raise ServiceValidationError(str(error)) from error
 
     async def set_queue_settings(call: ServiceCall) -> None:
+        _async_require_loaded(hass)
         await async_get_runtime(hass).async_queue_settings({"values": dict(call.data)})
 
     async def player_command(call: ServiceCall) -> None:
