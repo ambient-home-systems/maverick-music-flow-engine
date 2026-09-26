@@ -12,6 +12,7 @@ from conftest import (
     BEDROOM_ID,
     KITCHEN,
     KITCHEN_ID,
+    FakeCommandError,
     FakeMusicAssistant,
     MusicAssistantStub,
     engine_runtime,
@@ -254,6 +255,65 @@ async def test_run_orchestration_service(
     """run_orchestration runs one pass."""
     await _call(hass, "run_orchestration", {})
     assert engine_runtime(hass).orchestration_status()["last_tick_trigger"] == "manual"
+
+
+# --- error reporting -----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("service", "data", "message"),
+    [
+        ("run_schedule", {"id": "missing"}, "schedule not found"),
+        ("delete_timer", {}, "timer id or player is required"),
+        ("set_interface_preferences", {"night_mode": "sometimes"}, "Invalid night mode"),
+        ("set_queue_settings", {"crossfade_duration": 99}, "outside the supported range"),
+    ],
+)
+async def test_invalid_input_is_a_validation_error(
+    hass: HomeAssistant,
+    loaded_entry: MockConfigEntry,
+    service: str,
+    data: dict[str, Any],
+    message: str,
+) -> None:
+    """Input the Engine rejects is reported as a validation error, not a crash."""
+    with pytest.raises(ServiceValidationError, match=message):
+        await _call(hass, service, data)
+
+
+@pytest.mark.parametrize(
+    ("service", "data", "failing_command"),
+    [
+        (
+            "play_media",
+            {"player": KITCHEN, "media_id": "library://track/1"},
+            "player_queues/play_media",
+        ),
+        ("player_command", {"player": KITCHEN, "command": "pause"}, "players/cmd/pause"),
+        (
+            "transfer_queue",
+            {"source_player": KITCHEN, "target_player": BEDROOM},
+            "player_queues/transfer",
+        ),
+    ],
+)
+async def test_music_assistant_failures_are_home_assistant_errors(
+    hass: HomeAssistant,
+    loaded_entry: MockConfigEntry,
+    fake_ma: FakeMusicAssistant,
+    service: str,
+    data: dict[str, Any],
+    failing_command: str,
+) -> None:
+    """A Music Assistant error reaches the caller as a Home Assistant error with its message."""
+
+    def fail(args: dict[str, Any]) -> Any:
+        raise FakeCommandError("Player is powered off")
+
+    fake_ma.responses[failing_command] = fail
+    with pytest.raises(HomeAssistantError, match="Player is powered off") as err:
+        await _call(hass, service, data)
+    assert not isinstance(err.value, ServiceValidationError)
 
 
 # --- authorization (S-3) -----------------------------------------------------------------
