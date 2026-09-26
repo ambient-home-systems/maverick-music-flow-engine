@@ -37,6 +37,18 @@ def _module(name: str, **attrs: Any) -> types.ModuleType:
     return module
 
 
+def _fake_async_redact_data(data: Any, to_redact: Any) -> Any:
+    """Stand-in for homeassistant.components.diagnostics.async_redact_data."""
+    if isinstance(data, dict):
+        return {
+            key: ("**REDACTED**" if key in to_redact and value else _fake_async_redact_data(value, to_redact))
+            for key, value in data.items()
+        }
+    if isinstance(data, list):
+        return [_fake_async_redact_data(item, to_redact) for item in data]
+    return data
+
+
 def _websocket_command(schema: dict[Any, Any]):
     """Stand-in for websocket_api.websocket_command that keeps the schema for tests.
 
@@ -65,6 +77,9 @@ _HA_STUBS = {
         async_response=lambda func: func,
         ActiveConnection=object,
         ERR_UNAUTHORIZED=ERR_UNAUTHORIZED,
+    ),
+    "homeassistant.components.diagnostics": _module(
+        "homeassistant.components.diagnostics", async_redact_data=_fake_async_redact_data
     ),
     "homeassistant.core": _module(
         "homeassistant.core", HomeAssistant=object, callback=lambda func: func

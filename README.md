@@ -260,6 +260,8 @@ Run card Diagnostics and inspect the Engine integration/device page. Check MA ha
 
 Card access uses authenticated HA routes. Lyrics external lookup, AI services and music providers have separate privacy/cost behavior configured in their respective systems.
 
+**Redaction.** Both the downloadable HA diagnostics file and the card's `maverick_music_flow/diagnostics/run` WebSocket command run their output through redaction before it leaves the Engine, so it is safe to paste into a GitHub issue. This removes the Music Assistant token and server URLs, artwork links (including the login-free item artwork URLs and the proxied player artwork URL, which serve images without authentication), any other field whose name contains "token" or "password", and query strings from any URL that remains. Connection error messages (`last_error`) are truncated and have URLs and IP addresses stripped, since they can otherwise include the Music Assistant server address. Media titles, artist/album names and player friendly names are kept unredacted, since they carry no credentials and are usually what's needed to diagnose a playback report; remove them yourself before sharing if that content is sensitive.
+
 **Permission model.** Every WebSocket command, HTTP command and Engine action is classified in `custom_components/maverick_music_flow/authorization.py`; anything unclassified is refused. The same rules apply on every transport, so the HTTP fallback grants nothing that WebSocket does not, and a person calling an Engine action from Developer tools or a script is checked like a card user (automations run as the system user and are never refused). Do not grant extra access simply to hide a permission error.
 
 | Level | Who | What |

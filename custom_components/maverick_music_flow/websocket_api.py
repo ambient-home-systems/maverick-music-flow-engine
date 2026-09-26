@@ -31,6 +31,7 @@ from .command_bridge import (
     strip_internal_keys,
 )
 from .const import CONF_INSTANCE_ID, CONF_PROFILE_ID, DEFAULT_PROFILE_ID, DOMAIN, NOT_LOADED_MESSAGE
+from .diagnostics_redact import redact_diagnostics
 from .runtime import HomeiiFlowRuntime
 from .radio_directory import search_stations
 from .saved_playlists import list_playlists, save_playlist, play_playlist, delete_playlist
@@ -233,24 +234,26 @@ def websocket_run_diagnostics(
     runtime = _runtime(hass)
     connection.send_result(
         msg["id"],
-        {
-            "context": runtime.context(
-                instance_id=msg.get(CONF_INSTANCE_ID),
-                profile_id=msg.get(CONF_PROFILE_ID),
-            ),
-            "required_connections": runtime.required_connections_snapshot(),
-            "stats": runtime.stats(),
-            "playback_statistics": runtime.playback_statistics(),
-            "screensaver": runtime.screensaver_state(msg.get(CONF_PROFILE_ID)),
-            "orchestration": runtime.orchestration_status(),
-            "schedules": runtime.schedules(msg.get(CONF_PROFILE_ID)),
-            "timers": runtime.timers(msg.get(CONF_PROFILE_ID)),
-            "volume_rules": runtime.volume_rules(msg.get(CONF_PROFILE_ID)),
-            "volume_rule_summaries": runtime.volume_rule_summaries(msg.get(CONF_PROFILE_ID)),
-            "active_volume_rules": runtime.active_volume_rule_summaries(msg.get(CONF_PROFILE_ID)),
-            "announcements": runtime.announcements(msg.get(CONF_PROFILE_ID)),
-            "activity": runtime.activity(msg.get(CONF_PROFILE_ID))[:10],
-        },
+        redact_diagnostics(
+            {
+                "context": runtime.context(
+                    instance_id=msg.get(CONF_INSTANCE_ID),
+                    profile_id=msg.get(CONF_PROFILE_ID),
+                ),
+                "required_connections": runtime.required_connections_snapshot(),
+                "stats": runtime.stats(),
+                "playback_statistics": runtime.playback_statistics(),
+                "screensaver": runtime.screensaver_state(msg.get(CONF_PROFILE_ID)),
+                "orchestration": runtime.orchestration_status(),
+                "schedules": runtime.schedules(msg.get(CONF_PROFILE_ID)),
+                "timers": runtime.timers(msg.get(CONF_PROFILE_ID)),
+                "volume_rules": runtime.volume_rules(msg.get(CONF_PROFILE_ID)),
+                "volume_rule_summaries": runtime.volume_rule_summaries(msg.get(CONF_PROFILE_ID)),
+                "active_volume_rules": runtime.active_volume_rule_summaries(msg.get(CONF_PROFILE_ID)),
+                "announcements": runtime.announcements(msg.get(CONF_PROFILE_ID)),
+                "activity": runtime.activity(msg.get(CONF_PROFILE_ID))[:10],
+            }
+        ),
     )
 
 
