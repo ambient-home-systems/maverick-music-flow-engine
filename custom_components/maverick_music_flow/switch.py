@@ -137,6 +137,9 @@ def _remove_stale_registry_entries(
     for registry_entry in list(registry.entities.values()):
         if getattr(registry_entry, "config_entry_id", None) != entry.entry_id:
             continue
+        entity_id = str(getattr(registry_entry, "entity_id", "") or "")
+        if entity_id.split(".", 1)[0] != "switch":
+            continue
         unique_id = str(getattr(registry_entry, "unique_id", "") or "")
         if not unique_id.startswith(prefix):
             continue
