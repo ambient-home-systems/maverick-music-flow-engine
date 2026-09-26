@@ -20,7 +20,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest import IsolatedAsyncioTestCase, main
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components/maverick_music_flow"
@@ -363,6 +363,15 @@ class ConfigEntries:
     async def async_reload(self, entry_id):
         raise AssertionError("not used")
 
+    def async_update_entry(self, entry, *, data=None, options=None, version=None):
+        if data is not None:
+            entry.data = data
+        if options is not None:
+            entry.options = options
+        if version is not None:
+            entry.version = version
+        return True
+
 
 class FakeHass:
     def __init__(self, stored: dict[str, Any] | None = None) -> None:
@@ -400,8 +409,9 @@ class Entry:
     def __init__(self, entry_id: str = "entry-1") -> None:
         self.entry_id = entry_id
         self.title = "HOMEii Flow Engine"
-        self.data = {"instance_id": "default"}
-        self.options = {"music_assistant_url": MA_URL, "music_assistant_token": "ma-token"}
+        self.version = 2
+        self.data = {"instance_id": "default", "music_assistant_token": "ma-token"}
+        self.options = {"music_assistant_url": MA_URL}
         self.unload_callbacks: list[Any] = []
 
     def add_update_listener(self, listener):
@@ -725,6 +735,62 @@ class ReloadTests(LifecycleTestCase):
         await self.unload_entry(entry)
         self.assertEqual(HANDLES.double_removals, 0)
         self.assertEqual(HANDLES.active(), [])
+
+
+
+class MigrationTests(IsolatedAsyncioTestCase):
+    def version_1_entry(self, data_token, options_token) -> Entry:
+        entry = Entry()
+        entry.version = 1
+        entry.data = {"instance_id": "default", "music_assistant_url": MA_URL}
+        if data_token is not None:
+            entry.data["music_assistant_token"] = data_token
+        entry.options = {"profile_id": "default", "allow_local_media_urls": True}
+        if options_token is not None:
+            entry.options["music_assistant_token"] = options_token
+        return entry
+
+    async def test_migration_moves_the_token_from_options_to_data(self):
+        # A version 1 options flow saved the replacement token in options, where it won.
+        entry = self.version_1_entry("original-token", "replacement-token")
+        self.assertTrue(await ENGINE.async_migrate_entry(FakeHass(), entry))
+        self.assertEqual(entry.version, 2)
+        self.assertEqual(entry.data["music_assistant_token"], "replacement-token")
+        self.assertNotIn("music_assistant_token", entry.options)
+        self.assertEqual(entry.options, {"profile_id": "default", "allow_local_media_urls": True})
+        self.assertEqual(entry.data["music_assistant_url"], MA_URL)
+
+    async def test_migration_keeps_the_data_token_when_options_has_none(self):
+        for options_token in (None, ""):
+            entry = self.version_1_entry("original-token", options_token)
+            self.assertTrue(await ENGINE.async_migrate_entry(FakeHass(), entry))
+            self.assertEqual(entry.version, 2)
+            self.assertEqual(entry.data["music_assistant_token"], "original-token")
+            self.assertNotIn("music_assistant_token", entry.options)
+
+    async def test_migration_fills_data_from_options_only_token(self):
+        entry = self.version_1_entry(None, "options-token")
+        self.assertTrue(await ENGINE.async_migrate_entry(FakeHass(), entry))
+        self.assertEqual(entry.data["music_assistant_token"], "options-token")
+
+    async def test_migrated_entry_registers_the_data_token(self):
+        entry = self.version_1_entry("original-token", "replacement-token")
+        await ENGINE.async_migrate_entry(FakeHass(), entry)
+        runtime = SimpleNamespace(register_entry=MagicMock())
+        ENGINE._register_entry(runtime, entry)
+        self.assertEqual(runtime.register_entry.call_args.kwargs["music_assistant_token"], "replacement-token")
+
+    async def test_newer_entry_version_is_refused(self):
+        entry = self.version_1_entry("token", None)
+        entry.version = 3
+        self.assertFalse(await ENGINE.async_migrate_entry(FakeHass(), entry))
+        self.assertEqual(entry.data["music_assistant_token"], "token")
+
+    async def test_current_entry_is_left_alone(self):
+        entry = Entry()
+        before = (dict(entry.data), dict(entry.options))
+        self.assertTrue(await ENGINE.async_migrate_entry(FakeHass(), entry))
+        self.assertEqual((entry.data, entry.options), before)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,9 @@ CONF_MUSIC_ASSISTANT_TOKEN = "music_assistant_token"
 CONF_ALLOW_NON_ADMIN_MANAGEMENT = "allow_non_admin_management"
 CONF_ALLOW_LOCAL_MEDIA_URLS = "allow_local_media_urls"
 
+# Version 2 keeps the MA token only in the config entry data, never in its options.
+CONFIG_ENTRY_VERSION = 2
+
 DEFAULT_INSTANCE_ID = "default"
 DEFAULT_PROFILE_ID = "default"
 DEFAULT_NAME = "HOMEii Flow Engine"

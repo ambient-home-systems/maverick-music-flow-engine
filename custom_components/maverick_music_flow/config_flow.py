@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import voluptuous as vol
@@ -9,9 +10,15 @@ from aiohttp import ClientError, ClientTimeout
 
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import AbortFlow
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers import selector
-from .onboarding_auth import create_onboarding_token, is_ha_interface_url
+from .onboarding_auth import (
+    create_onboarding_token,
+    is_ha_interface_url,
+    onboarding_endpoint,
+    revoke_onboarding_token,
+)
 
 from .const import (
     CONF_ALLOW_LOCAL_MEDIA_URLS,
@@ -22,11 +29,19 @@ from .const import (
     CONF_MUSIC_ASSISTANT_TOKEN,
     CONF_MUSIC_ASSISTANT_URL,
     CONF_PROFILE_ID,
+    CONFIG_ENTRY_VERSION,
     DEFAULT_INSTANCE_ID,
     DEFAULT_NAME,
     DEFAULT_PROFILE_ID,
     DOMAIN,
     MUSIC_ASSISTANT_SCHEMA_MIN,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+# Tokens and passwords are masked in every form; a stored token is never shown back.
+PASSWORD_SELECTOR = selector.TextSelector(
+    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
 )
 
 MEDIA_TYPES = {
@@ -52,9 +67,9 @@ MENU_OPTIONS = {
 }
 
 
-async def _validate_music_assistant_api(hass: Any, url: str, token: str) -> str | None:
-    """Validate the required Music Assistant 2.10 API connection."""
-    if not url or not token:
+async def _validate_music_assistant_server(hass: Any, url: str) -> str | None:
+    """Check that the URL answers as a Music Assistant server with a supported schema."""
+    if not url:
         return "required"
     base_url = url.rstrip("/")
     session = async_get_clientsession(hass)
@@ -77,6 +92,21 @@ async def _validate_music_assistant_api(hass: Any, url: str, token: str) -> str 
         )
         if schema_version < MUSIC_ASSISTANT_SCHEMA_MIN:
             return "unsupported_ma_version"
+    except (ClientError, TimeoutError, ValueError, TypeError):
+        return "cannot_connect"
+    return None
+
+
+async def _validate_music_assistant_api(hass: Any, url: str, token: str) -> str | None:
+    """Validate the required Music Assistant 2.10 API connection."""
+    if not url or not token:
+        return "required"
+    server_error = await _validate_music_assistant_server(hass, url)
+    if server_error:
+        return server_error
+    base_url = url.rstrip("/")
+    session = async_get_clientsession(hass)
+    try:
         async with session.post(
             f"{base_url}/api",
             headers={
@@ -211,24 +241,51 @@ def _timer_choices(runtime: Any | None, profile_id: str) -> dict[str, str]:
 class HomeiiFlowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a HOMEii Flow Engine config flow."""
 
-    VERSION = 1
+    VERSION = CONFIG_ENTRY_VERSION
+
+    # Server checked by the automatic step, used by the sign-in step that follows.
+    _automatic_url = ""
+    _automatic_instance_id = DEFAULT_INSTANCE_ID
 
     async def async_step_user(self, user_input=None):
         """Choose explicit MA login or manual token setup."""
         return self.async_show_menu(step_id="user", menu_options=["automatic", "manual"])
 
     async def async_step_automatic(self, user_input=None):
-        """Create a dedicated token using MA built-in credentials."""
+        """Check the MA server before asking for credentials or creating a token."""
         errors = {}
         if user_input is not None:
             # Reject duplicate instances before creating a token on MA.
             instance_id = str(user_input.get(CONF_INSTANCE_ID) or DEFAULT_INSTANCE_ID).strip()
             await self.async_set_unique_id(instance_id)
             self._abort_if_unique_id_configured()
+            music_assistant_url = str(user_input.get(CONF_MUSIC_ASSISTANT_URL) or "").strip()
+            try:
+                onboarding_endpoint(music_assistant_url)
+            except ValueError as err:
+                errors[CONF_MUSIC_ASSISTANT_URL] = str(err)
+            else:
+                server_error = await _validate_music_assistant_server(self.hass, music_assistant_url)
+                if server_error:
+                    errors["base"] = server_error
+            if not errors:
+                self._automatic_url = music_assistant_url
+                self._automatic_instance_id = instance_id
+                return await self.async_step_automatic_login()
+        return self.async_show_form(step_id="automatic", data_schema=vol.Schema({
+            vol.Required(CONF_MUSIC_ASSISTANT_URL): str,
+            vol.Optional(CONF_INSTANCE_ID, default=DEFAULT_INSTANCE_ID): str,
+        }), errors=errors)
+
+    async def async_step_automatic_login(self, user_input=None):
+        """Create a dedicated token using MA built-in credentials."""
+        errors = {}
+        if user_input is not None:
+            url = self._automatic_url
             try:
                 token = await create_onboarding_token(
                     async_get_clientsession(self.hass),
-                    str(user_input.get(CONF_MUSIC_ASSISTANT_URL) or ""),
+                    url,
                     str(user_input.get("username") or ""),
                     str(user_input.get("password") or ""),
                 )
@@ -237,18 +294,72 @@ class HomeiiFlowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except (ClientError, TimeoutError):
                 errors["base"] = "cannot_connect"
             else:
-                # Only the dedicated token goes into the regular setup flow.
-                return await self.async_step_manual({
-                    CONF_INSTANCE_ID: instance_id,
-                    CONF_MUSIC_ASSISTANT_URL: user_input[CONF_MUSIC_ASSISTANT_URL],
-                    CONF_MUSIC_ASSISTANT_TOKEN: token,
-                })
-        return self.async_show_form(step_id="automatic", data_schema=vol.Schema({
-            vol.Required(CONF_MUSIC_ASSISTANT_URL): str,
-            vol.Required("username"): str,
-            vol.Required("password"): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
-            vol.Optional(CONF_INSTANCE_ID, default=DEFAULT_INSTANCE_ID): str,
-        }), errors=errors)
+                connection_error = await _validate_music_assistant_api(self.hass, url, token)
+                if connection_error:
+                    # The token is useless to us; do not leave it behind on MA.
+                    await self._async_revoke_onboarding_token(url, token)
+                    errors["base"] = connection_error
+                else:
+                    try:
+                        self._abort_if_unique_id_configured()
+                    except AbortFlow:
+                        await self._async_revoke_onboarding_token(url, token)
+                        raise
+                    # Only the dedicated token is stored; the credentials are not kept.
+                    return self._async_create_music_assistant_entry(
+                        instance_id=self._automatic_instance_id,
+                        music_assistant_url=url,
+                        music_assistant_token=token,
+                    )
+        # Over http:// the username and password cross the network unencrypted, so that
+        # form carries a warning. It is still allowed for local MA servers.
+        insecure = self._automatic_url.lower().startswith("http://")
+        return self.async_show_form(
+            step_id="automatic_login_http" if insecure else "automatic_login",
+            data_schema=vol.Schema({
+                vol.Required("username"): str,
+                vol.Required("password"): PASSWORD_SELECTOR,
+            }),
+            errors=errors,
+        )
+
+    async def async_step_automatic_login_http(self, user_input=None):
+        """Handle the sign-in form shown with the unencrypted connection warning."""
+        return await self.async_step_automatic_login(user_input)
+
+    async def _async_revoke_onboarding_token(self, url: str, token: str) -> None:
+        """Remove a token created during this flow that will not be saved."""
+        if not await revoke_onboarding_token(async_get_clientsession(self.hass), url, token):
+            _LOGGER.warning(
+                "Could not revoke the unused Music Assistant token created during setup; "
+                "delete the HOMEii Flow Engine token in Music Assistant settings"
+            )
+
+    def _async_create_music_assistant_entry(
+        self,
+        *,
+        instance_id: str,
+        music_assistant_url: str,
+        music_assistant_token: str,
+        title: str = DEFAULT_NAME,
+        profile_id: str = DEFAULT_PROFILE_ID,
+        music_assistant_external_url: str = "",
+        enable_experimental: bool = False,
+    ) -> config_entries.ConfigFlowResult:
+        """Create the config entry; the token lives only in entry.data."""
+        return self.async_create_entry(
+            title=title,
+            data={
+                CONF_INSTANCE_ID: instance_id,
+                CONF_PROFILE_ID: profile_id,
+                CONF_MUSIC_ASSISTANT_URL: music_assistant_url,
+                CONF_MUSIC_ASSISTANT_EXTERNAL_URL: music_assistant_external_url,
+                CONF_MUSIC_ASSISTANT_TOKEN: music_assistant_token,
+            },
+            options={
+                CONF_ENABLE_EXPERIMENTAL: enable_experimental,
+            },
+        )
 
     async def async_step_manual(
         self,
@@ -290,19 +401,15 @@ class HomeiiFlowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not errors:
                 await self.async_set_unique_id(instance_id)
                 self._abort_if_unique_id_configured()
-                return self.async_create_entry(
+                return self._async_create_music_assistant_entry(
+                    instance_id=instance_id,
+                    music_assistant_url=music_assistant_url,
+                    music_assistant_token=music_assistant_token,
                     title=str(user_input.get("name") or DEFAULT_NAME),
-                    data={
-                        CONF_INSTANCE_ID: instance_id,
-                        CONF_PROFILE_ID: str(user_input.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID).strip()
-                        or DEFAULT_PROFILE_ID,
-                        CONF_MUSIC_ASSISTANT_URL: music_assistant_url,
-                        CONF_MUSIC_ASSISTANT_EXTERNAL_URL: music_assistant_external_url,
-                        CONF_MUSIC_ASSISTANT_TOKEN: music_assistant_token,
-                    },
-                    options={
-                        CONF_ENABLE_EXPERIMENTAL: bool(user_input.get(CONF_ENABLE_EXPERIMENTAL, False)),
-                    },
+                    profile_id=str(user_input.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID).strip()
+                    or DEFAULT_PROFILE_ID,
+                    music_assistant_external_url=music_assistant_external_url,
+                    enable_experimental=bool(user_input.get(CONF_ENABLE_EXPERIMENTAL, False)),
                 )
 
         return self.async_show_form(
@@ -314,7 +421,7 @@ class HomeiiFlowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional(CONF_PROFILE_ID, default=DEFAULT_PROFILE_ID): str,
                     vol.Required(CONF_MUSIC_ASSISTANT_URL, default=""): str,
                     vol.Optional(CONF_MUSIC_ASSISTANT_EXTERNAL_URL, default=""): str,
-                    vol.Required(CONF_MUSIC_ASSISTANT_TOKEN, default=""): str,
+                    vol.Required(CONF_MUSIC_ASSISTANT_TOKEN): PASSWORD_SELECTOR,
                 }
             ),
             errors=errors,
@@ -384,9 +491,7 @@ class HomeiiFlowOptionsFlow(config_entries.OptionsFlow):
             ).strip()
             entered_token = str(user_input.get(CONF_MUSIC_ASSISTANT_TOKEN) or "").strip()
             existing_token = str(
-                self._config_entry.options.get(CONF_MUSIC_ASSISTANT_TOKEN)
-                or self._config_entry.data.get(CONF_MUSIC_ASSISTANT_TOKEN)
-                or ""
+                self._config_entry.data.get(CONF_MUSIC_ASSISTANT_TOKEN) or ""
             ).strip()
             effective_token = entered_token or existing_token
             if is_ha_interface_url(music_assistant_url):
@@ -403,14 +508,14 @@ class HomeiiFlowOptionsFlow(config_entries.OptionsFlow):
                 errors[CONF_MUSIC_ASSISTANT_TOKEN] = "required"
             updated = dict(self._config_entry.options)
             updated.update(user_input)
+            # The token belongs in entry.data only; never copy it into options.
+            updated.pop(CONF_MUSIC_ASSISTANT_TOKEN, None)
             updated[CONF_ALLOW_NON_ADMIN_MANAGEMENT] = bool(
                 user_input.get(CONF_ALLOW_NON_ADMIN_MANAGEMENT, False)
             )
             updated[CONF_ALLOW_LOCAL_MEDIA_URLS] = bool(
                 user_input.get(CONF_ALLOW_LOCAL_MEDIA_URLS, False)
             )
-            if effective_token:
-                updated[CONF_MUSIC_ASSISTANT_TOKEN] = effective_token
             if not errors:
                 connection_error = await _validate_music_assistant_api(
                     self.hass, music_assistant_url, effective_token
@@ -418,6 +523,17 @@ class HomeiiFlowOptionsFlow(config_entries.OptionsFlow):
                 if connection_error:
                     errors["base"] = connection_error
             if not errors:
+                if effective_token != existing_token:
+                    # Save data and options together so the entry reloads once; the
+                    # options write from async_create_entry then changes nothing.
+                    self.hass.config_entries.async_update_entry(
+                        self._config_entry,
+                        data={
+                            **self._config_entry.data,
+                            CONF_MUSIC_ASSISTANT_TOKEN: effective_token,
+                        },
+                        options=updated,
+                    )
                 return self.async_create_entry(title="", data=updated)
 
         return self.async_show_form(
@@ -445,7 +561,7 @@ class HomeiiFlowOptionsFlow(config_entries.OptionsFlow):
                             self._config_entry.data.get(CONF_MUSIC_ASSISTANT_EXTERNAL_URL, ""),
                         ),
                     ): str,
-                    vol.Optional(CONF_MUSIC_ASSISTANT_TOKEN, default=""): str,
+                    vol.Optional(CONF_MUSIC_ASSISTANT_TOKEN): PASSWORD_SELECTOR,
                     vol.Optional(
                         CONF_ALLOW_NON_ADMIN_MANAGEMENT,
                         default=bool(

@@ -5,7 +5,8 @@ from typing import Any
 from unittest import IsolatedAsyncioTestCase
 
 SOURCE = Path(__file__).resolve().parents[1] / "custom_components/maverick_music_flow/config_flow.py"
-node = next(n for n in ast.parse(SOURCE.read_text(encoding="utf-8")).body if isinstance(n, ast.AsyncFunctionDef) and n.name == "_validate_music_assistant_api")
+VALIDATORS = ("_validate_music_assistant_server", "_validate_music_assistant_api")
+nodes = [n for n in ast.parse(SOURCE.read_text(encoding="utf-8")).body if isinstance(n, ast.AsyncFunctionDef) and n.name in VALIDATORS]
 
 class Response:
     def __init__(self, payload, status=200):
@@ -21,7 +22,7 @@ class ConnectionTests(IsolatedAsyncioTestCase):
             def post(self, *args, **kwargs): return Response(payload, status)
         ns = dict(Any=Any, ClientError=ConnectionError, ClientTimeout=lambda **kw: kw,
                   MUSIC_ASSISTANT_SCHEMA_MIN=1, async_get_clientsession=lambda hass: Session())
-        exec(compile(ast.Module(body=[node], type_ignores=[]), str(SOURCE), "exec"), ns)
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), str(SOURCE), "exec"), ns)
         return await ns["_validate_music_assistant_api"](None, "http://ma:8095", "test-token")
     async def test_direct_http_player_list(self):
         self.assertIsNone(await self.validate([{"player_id": "computer"}]))
