@@ -136,9 +136,11 @@ QUEUE_GET_FIELDS = {
     vol.Optional("limit_after"): vol.Any(str, int),
 }
 
+# No "type" alias for media_type here: merged into a WebSocket schema it would replace
+# the command's own "type" key, and Home Assistant would register the command under the
+# wrong name. The HTTP view accepts "type" through _HTTP_BASE_SCHEMA and drops it.
 LIBRARY_GET_FIELDS = {
     vol.Optional("media_type"): str,
-    vol.Optional("type"): str,
     vol.Optional("query"): str,
     vol.Optional("search"): str,
     vol.Optional("search_query"): str,

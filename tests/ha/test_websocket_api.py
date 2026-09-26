@@ -18,6 +18,7 @@ from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.typing import MockHAClientWebSocket, WebSocketGenerator
 
+from custom_components.maverick_music_flow import websocket_api
 from custom_components.maverick_music_flow.const import DOMAIN, VERSION
 
 ITEM_ARTWORK_PREFIX = f"/api/{DOMAIN}/artwork/item/"
@@ -119,18 +120,23 @@ async def test_search_and_favorites(admin_ws: MockHAClientWebSocket) -> None:
     assert [item["name"] for item in result["items"]] == ["Morning Mix"]
 
 
-@pytest.mark.xfail(
-    reason=(
-        "library/get is registered under the key `str`, not its command name: "
-        "LIBRARY_GET_FIELDS has vol.Optional('type'), which replaces the command type "
-        "in the merged schema. Found by these tests; not yet fixed."
-    ),
-    strict=True,
-)
 async def test_library_get(admin_ws: MockHAClientWebSocket) -> None:
     """The library shelf for playlists is served over WebSocket."""
     result = await _result(admin_ws, "library/get", media_type="playlist")
     assert [item["name"] for item in result["items"]] == ["Morning Mix"]
+
+
+def test_every_command_is_registered_under_its_name() -> None:
+    """Each handler's command type is its own string, never a merged-in schema value."""
+    handlers = [
+        handler
+        for handler in vars(websocket_api).values()
+        if callable(handler) and hasattr(handler, "_ws_command")
+    ]
+    assert len(handlers) > 40
+    for handler in handlers:
+        assert isinstance(handler._ws_command, str), handler.__name__
+        assert handler._ws_command.startswith(f"{DOMAIN}/"), handler.__name__
 
 
 async def test_ma_command_bridge(
