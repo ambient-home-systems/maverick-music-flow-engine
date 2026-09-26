@@ -316,7 +316,23 @@ Open beta areas include long-running groups, device-specific DLNA, Safari/iOS ba
 
 Report both HOMEii versions, HA and MA versions/schema, player model/protocol, provider, exact steps, expected/actual result, native MA comparison and redacted diagnostics. For announcements or groups specify the target speakers. Never post tokens, cookies or full backups.
 
-Validation commands:
+### Running the tests
+
+The tests need Python 3.12 or 3.13. Install the test dependencies in a virtual environment and run pytest from the repository root. `requirements_test.txt` pins `pytest-homeassistant-custom-component` to the release for Home Assistant 2025.1.4, the oldest version the Engine supports (see `hacs.json`).
+
+```sh
+python3.13 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements_test.txt
+python -m pytest
+```
+
+- `tests/ha/` loads the integration into a real Home Assistant test instance: config flow, setup, unload and reload, every entity platform, the actions, the WebSocket commands, the HTTP views and diagnostics.
+- `tests/conftest.py` provides the fixtures: `fake_ma`, a fake Music Assistant server on 127.0.0.1 (`GET /info`, `POST /api`, the `/ws` WebSocket and `/imageproxy`); `mock_music_assistant`, a stand-in for Home Assistant's `music_assistant` integration with two players; and `loaded_entry`, an Engine config entry that is set up and connected to the fake server.
+- The other files in `tests/` are older function-level tests written with `unittest`. pytest runs them as well, and they still run without Home Assistant installed.
+- Tests marked `xfail` describe known bugs that are not fixed yet. The markers are strict, so a fix makes the test fail until its marker is removed.
+
+Repository checks that do not need Home Assistant:
 
 ```sh
 python -B -m unittest discover -s tests
