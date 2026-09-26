@@ -84,6 +84,15 @@ def _module(name: str, **attrs: Any) -> types.ModuleType:
     return module
 
 
+def _restore_modules(saved: dict[str, types.ModuleType | None]) -> None:
+    """Put back the sys.modules entries that the stand-ins temporarily replaced."""
+    for name, module in saved.items():
+        if module is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
+
+
 _STUBS = {
     "aiohttp": _module("aiohttp", ClientError=ClientError, ClientTimeout=lambda **kwargs: kwargs),
     "homeassistant": _module("homeassistant"),
@@ -114,16 +123,17 @@ def load_config_flow() -> types.ModuleType:
     name = f"{PACKAGE}.config_flow"
     if name in sys.modules:
         return sys.modules[name]
-    installed = [stub for stub in _STUBS if stub not in sys.modules]
-    sys.modules.update({stub: _STUBS[stub] for stub in installed})
+    # Always import against the stand-ins, even when pytest has already loaded the real
+    # Home Assistant, then put back whatever was there before.
+    saved = {stub: sys.modules.get(stub) for stub in _STUBS}
+    sys.modules.update(_STUBS)
     try:
         package = types.ModuleType(PACKAGE)
         package.__path__ = [str(COMPONENT)]
         sys.modules[PACKAGE] = package
         return importlib.import_module(name)
     finally:
-        for stub in installed:
-            sys.modules.pop(stub, None)
+        _restore_modules(saved)
 
 
 CF = load_config_flow()

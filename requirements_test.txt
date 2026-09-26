@@ -1,0 +1,21 @@
+# Test dependencies. Install with: python -m pip install -r requirements_test.txt
+#
+# pytest-homeassistant-custom-component 0.13.205 pins homeassistant==2025.1.4, the
+# floor in hacs.json, together with pytest 8.3.4 and pytest-asyncio 0.24.0. It needs
+# Python 3.12 or 3.13.
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-homeassistant-custom-component==0.13.205
+
+# Artwork lighting and the fake Music Assistant server's artwork use Pillow. Home
+# Assistant 2025.1.4 pins this version.
+Pillow==11.0.0
+
+# Requirements of Home Assistant's tts integration, which runtime.py imports. These are
+# the versions Home Assistant 2025.1.4 pins.
+mutagen==1.47.0
+ha-ffmpeg==3.2.2
+
+# aiodns 3.2.0 (pinned by Home Assistant 2025.1.4) accepts any pycares 4 or newer.
+# pycares 5 starts a process-wide thread that fails the harness's lingering-thread check.
+pycares==4.5.0
