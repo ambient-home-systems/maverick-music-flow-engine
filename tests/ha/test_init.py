@@ -65,6 +65,17 @@ async def test_setup_starts_runtime_and_connects(
     assert snapshot["music_assistant"]["music_assistant_player_count"] == 2
 
 
+async def test_setup_loads_the_http_dependency(
+    hass: HomeAssistant, mock_music_assistant: MusicAssistantStub, config_entry: MockConfigEntry
+) -> None:
+    """The Engine's views need hass.http; the manifest dependency sets it up first."""
+    assert "http" not in hass.config.components
+    await async_setup_engine(hass, config_entry)
+    assert "http" in hass.config.components
+    assert hass.http is not None
+    assert await hass.config_entries.async_unload(config_entry.entry_id)
+
+
 async def test_setup_with_a_rejected_token_still_loads(
     hass: HomeAssistant,
     mock_music_assistant: MusicAssistantStub,
