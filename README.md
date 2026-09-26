@@ -27,7 +27,7 @@ HACS must already be installed. This is a **custom repository**, not an official
 
 Or go to **Settings → Devices & services → Add integration → HOMEii Flow Engine**.
 
-- **Automatic:** enter the direct Music Assistant server URL and your MA built-in username/password to create a dedicated token. These are not your HA credentials; the password is not stored.
+- **Automatic:** enter the direct Music Assistant server URL, which is checked first, then your MA built-in username/password to create a dedicated token. These are not your HA credentials; the password is not stored, and the temporary MA login session is signed out once the token exists. If the new token fails the connection check, it is revoked in MA. With an `http://` address the username and password travel unencrypted over your network, and the form warns you; prefer `https://` or manual setup when that matters.
 - **Manual:** create a long-lived token in **Music Assistant → Settings → Profile**, then paste it into the Engine form.
 - Use your actual MA server address, for example `http://YOUR-MA-HOST:8095`. Do not paste the HA sidebar/ingress page URL.
 - Keep **Instance ID** and **Default Profile ID** as `default` for a standard installation. They identify this Engine connection and its default saved profile.
@@ -146,7 +146,7 @@ For an existing installation, retain its config entry, update the full component
 | Allow non-admin users to manage schedules, timers and volume rules | Options only, off by default | Turn on when your dashboards run as non-admin HA users and those users should create, change, run or delete schedules, timers and volume rules. They still need HA's permission to control the target player. See [permissions](#diagnostics-permissions-and-privacy) |
 | Allow announcements and playback from local network URLs | Options only, off by default | Turn on when announcements or `play_media` should use `http(s)` URLs on a media server in your private network (for example a NAS at `192.168.x.x`). The Music Assistant URL and this HA instance's own URL are always allowed. See [URL media](#diagnostics-permissions-and-privacy) |
 
-To update an existing connection: **Settings → Devices & services → HOMEii Flow Engine → Configure → General settings**. Leaving the token field blank in that edit flow preserves the saved token. Initial setup requires a token.
+To update an existing connection: **Settings → Devices & services → HOMEii Flow Engine → Configure → General settings**. Leaving the token field blank in that edit flow preserves the saved token. Initial setup requires a token. Token fields are masked, and the token is stored once, in the config entry's data (entries created by older releases are migrated automatically).
 
 Keep the official MA integration installed. First resolve failures in native MA; HOMEii cannot repair an offline provider or a speaker unsupported by MA.
 
@@ -342,7 +342,7 @@ The Smart screen also edits the existing system screensaver and artwork-lighting
 
 ## Guided connection
 
-Choose Automatic to create a dedicated token using your Music Assistant built-in username and password (not your Home Assistant credentials). The password is not stored. Alternatively choose Manual and paste a long-lived token from Music Assistant Settings → Profile. HA ingress URLs are rejected with guidance to use the direct MA server address. Keep Instance ID and Default Profile ID as default for a standard single installation.
+Choose Automatic to create a dedicated token using your Music Assistant built-in username and password (not your Home Assistant credentials). The server address and API schema are checked before you sign in. The password is not stored, the temporary login session is signed out, and a token that then fails the connection check is revoked. An `http://` address sends the credentials unencrypted, so the sign-in form shows a warning. Alternatively choose Manual and paste a long-lived token from Music Assistant Settings → Profile. HA ingress URLs are rejected with guidance to use the direct MA server address. Keep Instance ID and Default Profile ID as default for a standard single installation.
 
 [Beginner installation and rollback guide](https://github.com/r11a/homeii-music-flow/blob/v6.0.0/docs/INSTALL_STEP_BY_STEP.md).
 

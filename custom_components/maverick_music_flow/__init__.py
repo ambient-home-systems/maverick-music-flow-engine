@@ -60,6 +60,7 @@ from .const import (
     CONF_MUSIC_ASSISTANT_TOKEN,
     CONF_MUSIC_ASSISTANT_URL,
     CONF_PROFILE_ID,
+    CONFIG_ENTRY_VERSION,
     DEFAULT_INSTANCE_ID,
     DEFAULT_PROFILE_ID,
     DOMAIN,
@@ -562,6 +563,25 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate an older config entry to the current version."""
+    if entry.version > CONFIG_ENTRY_VERSION:
+        # Written by a newer Engine release; refuse rather than guess.
+        return False
+    if entry.version == 1:
+        # Version 1 options flows copied the MA token into options, where it overrode
+        # the one in data. Keep that effective token, in data only.
+        data = dict(entry.data)
+        options = dict(entry.options)
+        options_token = str(options.pop(CONF_MUSIC_ASSISTANT_TOKEN, None) or "").strip()
+        if options_token:
+            data[CONF_MUSIC_ASSISTANT_TOKEN] = options_token
+        hass.config_entries.async_update_entry(
+            entry, data=data, options=options, version=CONFIG_ENTRY_VERSION
+        )
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up HOMEii Flow Engine from a config entry."""
     try:
@@ -593,11 +613,7 @@ def _register_entry(runtime: HomeiiFlowRuntime, entry: ConfigEntry) -> None:
         or entry.data.get(CONF_MUSIC_ASSISTANT_EXTERNAL_URL)
         or ""
     ).strip()
-    music_assistant_token = str(
-        entry.options.get(CONF_MUSIC_ASSISTANT_TOKEN)
-        or entry.data.get(CONF_MUSIC_ASSISTANT_TOKEN)
-        or ""
-    ).strip()
+    music_assistant_token = str(entry.data.get(CONF_MUSIC_ASSISTANT_TOKEN) or "").strip()
     runtime.register_entry(
         entry.entry_id,
         instance_id=instance_id,
