@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 
 from . import async_get_runtime
 from .const import CONF_INSTANCE_ID, CONF_PROFILE_ID, VERSION
+from .diagnostics_redact import redact_diagnostics
 
 
 async def async_get_config_entry_diagnostics(
@@ -18,7 +19,7 @@ async def async_get_config_entry_diagnostics(
     """Return diagnostics for a config entry."""
     runtime = async_get_runtime(hass)
     profile_id = entry.options.get(CONF_PROFILE_ID) or entry.data.get(CONF_PROFILE_ID)
-    return {
+    return redact_diagnostics({
         "version": VERSION,
         "entry": {
             "title": entry.title,
@@ -86,13 +87,14 @@ async def async_get_config_entry_diagnostics(
             "run_orchestration",
             "apply_volume_rules",
             "run_next_schedule",
-            "run_schedule",
+            "show_system_screensaver_now",
         ],
         "calendar_keys": [
             "schedules_calendar",
         ],
         "number_keys": [
             "volume_rule_max",
+            "system_screensaver_timeout",
         ],
         "switch_keys": [
             "system_screensaver",
@@ -105,4 +107,4 @@ async def async_get_config_entry_diagnostics(
         "volume_rules_count": len(runtime.volume_rules(profile_id)),
         "announcements_count": len(runtime.announcements(profile_id)),
         "activity_count": runtime.activity_count(profile_id),
-    }
+    })

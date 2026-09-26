@@ -138,6 +138,18 @@ def _passthrough(func):
     return func
 
 
+def _fake_async_redact_data(data: Any, to_redact: Any) -> Any:
+    """Stand-in for homeassistant.components.diagnostics.async_redact_data."""
+    if isinstance(data, dict):
+        return {
+            key: ("**REDACTED**" if key in to_redact and value else _fake_async_redact_data(value, to_redact))
+            for key, value in data.items()
+        }
+    if isinstance(data, list):
+        return [_fake_async_redact_data(item, to_redact) for item in data]
+    return data
+
+
 SCHEMA_CALLS: list[str] = []
 WS_COMMANDS: list[Any] = []
 
@@ -196,6 +208,9 @@ _STUBS = {
         ActiveConnection=object,
         ERR_UNAUTHORIZED="unauthorized",
         async_register_command=lambda hass, handler: WS_COMMANDS.append(handler),
+    ),
+    "homeassistant.components.diagnostics": _module(
+        "homeassistant.components.diagnostics", async_redact_data=_fake_async_redact_data
     ),
     "homeassistant.components.tts": _module("homeassistant.components.tts"),
     "homeassistant.components.media_player": _module(
