@@ -48,6 +48,7 @@ from .command_bridge import (
     music_assistant_command_allowed,
     strip_internal_keys,
 )
+from .exceptions import HomeiiFlowServiceUnavailable
 from .media_url_policy import MediaUrlNotAllowed
 from .sendspin_bridge import HomeiiFlowSendspinView
 
@@ -804,8 +805,11 @@ def _async_register_services(hass: HomeAssistant) -> None:
         runtime = async_get_runtime(hass)
         try:
             await runtime.async_send_announcement(dict(call.data))
-        except MediaUrlNotAllowed as error:
+        except ValueError as error:  # Includes MediaUrlNotAllowed.
             raise ServiceValidationError(str(error)) from error
+        except HomeiiFlowServiceUnavailable as error:
+            # Raised when no target player received the announcement.
+            raise HomeAssistantError(str(error)) from error
 
     async def play_media(call: ServiceCall) -> None:
         runtime = async_get_runtime(hass)
