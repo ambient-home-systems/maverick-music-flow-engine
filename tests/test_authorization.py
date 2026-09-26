@@ -833,7 +833,12 @@ class FakeServiceValidationError(FakeUnauthorized):
 def load_service_guard(runtime):
     source = COMPONENT / "__init__.py"
     tree = ast.parse(source.read_text(encoding="utf-8"))
-    wanted = {"_async_check_service_access", "_async_register_guarded_service", "_async_require_loaded"}
+    wanted = {
+        "_async_check_service_access",
+        "_async_register_guarded_service",
+        "_async_require_loaded",
+        "_async_run_action",
+    }
     nodes = [n for n in tree.body if isinstance(n, ast.AsyncFunctionDef | ast.FunctionDef) and n.name in wanted]
     ns: dict[str, Any] = {
         "Any": Any,
@@ -844,6 +849,8 @@ def load_service_guard(runtime):
         "Unauthorized": FakeUnauthorized,
         "UnknownUser": FakeUnknownUser,
         "ServiceValidationError": FakeServiceValidationError,
+        "HomeAssistantError": FakeUnauthorized,
+        "HomeiiFlowEngineError": RuntimeError,
         "POLICY_CONTROL": POLICY_CONTROL,
         "async_get_runtime": lambda _hass: runtime,
         "CONF_PROFILE_ID": "profile_id",

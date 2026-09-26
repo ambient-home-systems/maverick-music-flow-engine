@@ -48,8 +48,7 @@ from .command_bridge import (
     music_assistant_command_allowed,
     strip_internal_keys,
 )
-from .exceptions import HomeiiFlowServiceUnavailable
-from .media_url_policy import MediaUrlNotAllowed
+from .exceptions import HomeiiFlowEngineError
 from .sendspin_bridge import HomeiiFlowSendspinView
 
 from .const import (
@@ -741,6 +740,22 @@ async def _async_check_service_access(hass: HomeAssistant, service: str, call: S
     raise Unauthorized(context=call.context)
 
 
+async def _async_run_action(handler: Any, call: ServiceCall) -> None:
+    """Run an action handler and report Engine failures as Home Assistant errors.
+
+    Invalid input (ValueError, which includes MediaUrlNotAllowed) becomes a
+    ServiceValidationError. Engine and Music Assistant failures become a
+    HomeAssistantError with the same message, so automations and the UI show the
+    reason instead of an unexpected error.
+    """
+    try:
+        await handler(call)
+    except ValueError as error:  # Includes MediaUrlNotAllowed.
+        raise ServiceValidationError(str(error)) from error
+    except (HomeiiFlowEngineError, RuntimeError) as error:
+        raise HomeAssistantError(str(error)) from error
+
+
 def _async_register_guarded_service(
     hass: HomeAssistant,
     service: str,
@@ -754,7 +769,7 @@ def _async_register_guarded_service(
     async def guarded(call: ServiceCall) -> None:
         _async_require_loaded(hass)
         await _async_check_service_access(hass, service, call)
-        await handler(call)
+        await _async_run_action(handler, call)
 
     hass.services.async_register(DOMAIN, service, guarded, schema=schema)
 
@@ -803,33 +818,22 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
     async def announce(call: ServiceCall) -> None:
         runtime = async_get_runtime(hass)
-        try:
-            await runtime.async_send_announcement(dict(call.data))
-        except ValueError as error:  # Includes MediaUrlNotAllowed.
-            raise ServiceValidationError(str(error)) from error
-        except HomeiiFlowServiceUnavailable as error:
-            # Raised when no target player received the announcement.
-            raise HomeAssistantError(str(error)) from error
+        await runtime.async_send_announcement(dict(call.data))
 
     async def play_media(call: ServiceCall) -> None:
         runtime = async_get_runtime(hass)
-        try:
-            await runtime.async_play_media(dict(call.data))
-        except MediaUrlNotAllowed as error:
-            raise ServiceValidationError(str(error)) from error
+        await runtime.async_play_media(dict(call.data))
+
+    async def save_queue_settings(call: ServiceCall) -> None:
+        await async_get_runtime(hass).async_queue_settings({"values": dict(call.data)})
 
     async def set_queue_settings(call: ServiceCall) -> None:
         _async_require_loaded(hass)
-        await async_get_runtime(hass).async_queue_settings({"values": dict(call.data)})
+        await _async_run_action(save_queue_settings, call)
 
     async def player_command(call: ServiceCall) -> None:
         runtime = async_get_runtime(hass)
-        try:
-            await runtime.async_player_command(dict(call.data))
-        except ValueError as error:
-            raise ServiceValidationError(str(error)) from error
-        except RuntimeError as error:
-            raise HomeAssistantError(str(error)) from error
+        await runtime.async_player_command(dict(call.data))
 
     async def transfer_queue(call: ServiceCall) -> None:
         runtime = async_get_runtime(hass)
