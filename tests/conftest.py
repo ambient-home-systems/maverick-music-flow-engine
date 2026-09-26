@@ -36,7 +36,6 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.setup import async_setup_component
 from PIL import Image
 from pytest_homeassistant_custom_component.common import (
     CLIENT_ID,
@@ -538,9 +537,6 @@ async def mock_music_assistant(
     The real integration needs the music-assistant-client library and a server; the
     Engine only needs it to be present, loaded, and to own the media_player entities.
     """
-    # A real installation always runs the http integration (the Engine registers views
-    # on it) even though the Engine's manifest does not list it as a dependency.
-    assert await async_setup_component(hass, "http", {})
     mock_integration(hass, MockModule("music_assistant"))
     ma_entry = MockConfigEntry(
         domain="music_assistant",

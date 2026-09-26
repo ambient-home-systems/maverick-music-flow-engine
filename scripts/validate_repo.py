@@ -93,8 +93,9 @@ def main() -> None:
         raise SystemExit("manifest.json domain does not match folder name")
     if not manifest.get("version"):
         raise SystemExit("manifest.json must include version for a custom integration")
-    if manifest.get("dependencies") != ["music_assistant"]:
-        raise SystemExit("manifest.json must require the Music Assistant integration")
+    # http: the Engine registers HTTP views and static paths on hass.http.
+    if manifest.get("dependencies") != ["http", "music_assistant"]:
+        raise SystemExit("manifest.json must require the http and Music Assistant integrations")
     if manifest.get("config_flow") is not True:
         raise SystemExit("manifest.json must enable config_flow")
 

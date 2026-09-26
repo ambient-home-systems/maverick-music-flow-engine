@@ -12,6 +12,7 @@
   "iot_class": "local_push",
   "requirements": [],
   "dependencies": [
+    "http",
     "music_assistant"
   ]
 }
