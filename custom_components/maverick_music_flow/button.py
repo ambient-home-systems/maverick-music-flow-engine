@@ -13,6 +13,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dis
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
+from homeassistant.helpers.typing import UNDEFINED
 
 from . import async_get_runtime
 from .const import (
@@ -170,7 +171,8 @@ class HomeiiFlowButton(ButtonEntity):
         self._entry = entry
         self.entity_description = description
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
-        self._attr_name = description.name
+        if description.name is not UNDEFINED:
+            self._attr_name = description.name
         self._last_result: dict[str, Any] | None = None
 
     async def async_added_to_hass(self) -> None:

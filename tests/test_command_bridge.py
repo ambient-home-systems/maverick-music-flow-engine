@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import copy
+import functools
 import hashlib
 import importlib
 import re
@@ -291,6 +292,7 @@ def load_runtime_command_method():
         "Any": Any,
         "asyncio": asyncio,
         "copy": copy,
+        "functools": functools,
         "hashlib": hashlib,
         "time": time,
         "music_assistant_command_allowed": allowed,

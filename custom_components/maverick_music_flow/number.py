@@ -176,9 +176,7 @@ class HomeiiFlowVolumeRuleNumber(NumberEntity):
         """Return the number name."""
         state = self.hass.states.get(self._player)
         player_name = (
-            str((state.attributes or {}).get("friendly_name") or self._player)
-            if state
-            else self._player
+            str(state.attributes.get("friendly_name") or self._player) if state else self._player
         )
         return f"Max volume: {player_name}"
 
@@ -194,7 +192,8 @@ class HomeiiFlowVolumeRuleNumber(NumberEntity):
         if rule is None:
             return None
         try:
-            return float(rule.get("max_volume"))
+            max_volume: Any = rule.get("max_volume")
+            return float(max_volume)
         except (TypeError, ValueError):
             return None
 

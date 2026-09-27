@@ -6,7 +6,7 @@ from typing import Any
 
 def build_playback_speed(queue_id: str, payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     """Set speed on the owning MA queue; reject values MA cannot apply."""
-    value = payload.get("speed")
+    value: Any = payload.get("speed")
     if not queue_id or isinstance(value, bool):
         raise ValueError("An active queue and numeric playback speed are required")
     try:

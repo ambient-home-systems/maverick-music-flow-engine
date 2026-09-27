@@ -98,9 +98,9 @@ async def async_setup_entry(
             current_timer_keys.add(key)
             if key in known_timers:
                 continue
-            entity = HomeiiFlowTimerSwitch(runtime, entry, profile_id, timer_id)
-            known_timers[key] = entity
-            entities.append(entity)
+            timer_switch = HomeiiFlowTimerSwitch(runtime, entry, profile_id, timer_id)
+            known_timers[key] = timer_switch
+            entities.append(timer_switch)
         for stale_key in [key for key in known_timers if key not in current_timer_keys]:
             known_timers.pop(stale_key).remove_from_registry()
         for rule in runtime.volume_rules(profile_id):
@@ -111,9 +111,9 @@ async def async_setup_entry(
             current_volume_rule_keys.add(key)
             if key in known_volume_rules:
                 continue
-            entity = HomeiiFlowVolumeRuleSwitch(runtime, entry, profile_id, player)
-            known_volume_rules[key] = entity
-            entities.append(entity)
+            rule_switch = HomeiiFlowVolumeRuleSwitch(runtime, entry, profile_id, player)
+            known_volume_rules[key] = rule_switch
+            entities.append(rule_switch)
         for stale_key in [key for key in known_volume_rules if key not in current_volume_rule_keys]:
             known_volume_rules.pop(stale_key).remove_from_registry()
         _remove_stale_registry_entries(
@@ -747,9 +747,7 @@ class HomeiiFlowVolumeRuleSwitch(SwitchEntity):
         """Return the volume-rule name."""
         state = self.hass.states.get(self._player)
         player_name = (
-            str((state.attributes or {}).get("friendly_name") or self._player)
-            if state
-            else self._player
+            str(state.attributes.get("friendly_name") or self._player) if state else self._player
         )
         return f"Volume limit: {player_name}"
 

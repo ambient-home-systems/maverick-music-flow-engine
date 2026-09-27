@@ -225,6 +225,7 @@ async def async_validate_media_url(
     if host == "localhost" or host.endswith(".localhost"):
         raise MediaUrlNotAllowed(local_refusal)
     literal = _parse_address(host)
+    addresses: list[Address | None]
     if literal is not None:
         addresses = [literal]
     else:
