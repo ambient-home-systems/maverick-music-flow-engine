@@ -1,5 +1,5 @@
 name: Beta bug report
-description: Report a reproducible HOMEii Flow beta problem.
+description: Report a reproducible Maverick Music Flow beta problem.
 title: "[Beta] "
 body:
   - type: markdown

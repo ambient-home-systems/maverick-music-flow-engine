@@ -1,8 +1,8 @@
 {
   "domain": "maverick_music_flow",
-  "name": "HOMEii Flow Engine",
+  "name": "Maverick Music Flow Engine",
   "codeowners": [
-    "@r11a"
+    "@ambient-home-systems"
   ],
   "config_flow": true,
   "dependencies": [

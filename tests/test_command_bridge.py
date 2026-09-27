@@ -46,7 +46,7 @@ AUTHORIZATION = importlib.import_module(f"{BRIDGE.__name__.rsplit('.', 1)[0]}.au
 ALLOWLIST = BRIDGE.MUSIC_ASSISTANT_COMMAND_ALLOWLIST
 allowed = BRIDGE.music_assistant_command_allowed
 
-# Commands the HOMEii Music Flow card sends through ma/command
+# Commands the Maverick Music Flow card sends through ma/command
 # (r11a/homeii-music-flow, src/core, checked at commit 7380d67).
 CARD_COMMANDS = {
     "ai_radio/hosts/list",
@@ -523,7 +523,7 @@ def load_command_view(runtime):
             HTTPServiceUnavailable=ServiceUnavailable,
             json_response=lambda result: {"json": result},
         ),
-        "NOT_LOADED_MESSAGE": "HOMEii Flow Engine is not loaded",
+        "NOT_LOADED_MESSAGE": "Maverick Music Flow Engine is not loaded",
         "HTTP_COMMAND_SCHEMAS": BRIDGE.HTTP_COMMAND_SCHEMAS,
         "music_assistant_command_allowed": allowed,
         "strip_internal_keys": BRIDGE.strip_internal_keys,

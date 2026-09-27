@@ -36,7 +36,7 @@ async def test_system_screensaver_switch(
 ) -> None:
     """The screensaver switch is created off and turns the screensaver on and off."""
     entity_id = engine_entity_id(hass, loaded_entry, "switch", "system_screensaver")
-    assert entity_id == "switch.homeii_flow_engine_system_screensaver"
+    assert entity_id == "switch.maverick_music_flow_engine_system_screensaver"
     assert hass.states.get(entity_id).state == STATE_OFF
 
     await _switch(hass, entity_id, SERVICE_TURN_ON)
@@ -69,7 +69,7 @@ async def test_schedule_switch_created_updated_removed(
     assert entity_id is not None
     state = hass.states.get(entity_id)
     assert state.state == STATE_ON
-    assert state.name == "HOMEii Flow Engine Wake up"
+    assert state.name == "Maverick Music Flow Engine Wake up"
     assert state.attributes["time"] == "07:00"
     assert state.attributes["player"] == KITCHEN
 

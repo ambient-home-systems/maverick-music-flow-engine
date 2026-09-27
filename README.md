@@ -1,8 +1,8 @@
-<p align="center"><img src="logo.png" alt="HOMEii Flow" width="360"></p>
-<h1 align="center">HOMEii Flow Engine</h1>
+<p align="center"><img src="logo.png" alt="Maverick Music Flow" width="360"></p>
+<h1 align="center">Maverick Music Flow Engine</h1>
 <p align="center"><strong>The connection between your music dashboard and your smart home.</strong><br>Music Assistant state, playback and home automation — through Home Assistant.</p>
-<p align="center"><img alt="Engine 1.0.0" src="https://img.shields.io/badge/Engine-1.0.0-c89b56"><img alt="Home Assistant integration" src="https://img.shields.io/badge/Home_Assistant-custom_integration-41BDF5"><img alt="Stable" src="https://img.shields.io/badge/Status-STABLE-2ea44f"></p>
-<p align="center"><a href="https://github.com/r11a/homeii-music-flow">Music Flow card</a> · <a href="#installation">Installation</a> · <a href="#configuration-fields">Configuration</a> · <a href="#automations-you-can-build">Automations</a> · <a href="#troubleshooting">Troubleshooting</a></p>
+<p align="center"><img alt="Engine 1.0.0" src="https://img.shields.io/badge/Engine-1.0.0-4338ca"><img alt="Home Assistant integration" src="https://img.shields.io/badge/Home_Assistant-custom_integration-41BDF5"><img alt="Beta" src="https://img.shields.io/badge/Status-BETA-e5a445"></p>
+<p align="center"><a href="https://github.com/ambient-home-systems/maverick-music-flow">Music Flow card</a> · <a href="#installation">Installation</a> · <a href="#configuration-fields">Configuration</a> · <a href="#automations-you-can-build">Automations</a> · <a href="#troubleshooting">Troubleshooting</a></p>
 
 > [!IMPORTANT]
 > **Required stable pair: Engine `1.0.0` + card `6.0.0`. Install the Engine first.** Updating the card from 5.9.3 before the Engine is a breaking, unsupported order.
@@ -19,13 +19,13 @@
 
 [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=ambient-home-systems&repository=maverick-music-flow-engine&category=integration)
 
-HACS must already be installed. This is a **custom repository**, not an official HACS default listing. If the button cannot find it, open **HACS → ⋮ → Custom repositories**, add `https://github.com/ambient-home-systems/maverick-music-flow-engine`, choose **Integration**, and add it. Open HOMEii Flow Engine, install **1.0.0**, then **restart Home Assistant**. The button opens HACS; it does not silently install anything.
+HACS must already be installed. This is a **custom repository**, not an official HACS default listing. If the button cannot find it, open **HACS → ⋮ → Custom repositories**, add `https://github.com/ambient-home-systems/maverick-music-flow-engine`, choose **Integration**, and add it. Open Maverick Music Flow Engine, install **1.0.0**, then **restart Home Assistant**. The button opens HACS; it does not silently install anything.
 
 ### 2. Add and configure the integration after restarting
 
 [![Add integration](https://my.home-assistant.io/badges/config_flow.svg)](https://my.home-assistant.io/redirect/config_flow/?domain=maverick_music_flow)
 
-Or go to **Settings → Devices & services → Add integration → HOMEii Flow Engine**.
+Or go to **Settings → Devices & services → Add integration → Maverick Music Flow Engine**.
 
 - **Automatic:** enter the direct Music Assistant server URL, which is checked first, then your MA built-in username/password to create a dedicated token. These are not your HA credentials; the password is not stored, and the temporary MA login session is signed out once the token exists. If the new token fails the connection check, it is revoked in MA. With an `http://` address the username and password travel unencrypted over your network, and the form warns you; prefer `https://` or manual setup when that matters.
 - **Manual:** create a long-lived token in **Music Assistant → Settings → Profile**, then paste it into the Engine form.
@@ -37,7 +37,7 @@ If My Home Assistant opens the wrong server, change its instance URL to your own
 
 ### Manual installation without HACS
 
-Download the zip asset attached to the latest Maverick Music Engine [release](https://github.com/ambient-home-systems/maverick-music-flow-engine/releases), extract it, and copy the complete `custom_components/maverick_music_flow` folder into `/config/custom_components/`. The resulting file must be `/config/custom_components/maverick_music_flow/manifest.json`. Restart HA, then use **Add integration** above. Do not create an extra nested `custom_components` directory.
+Download the zip asset attached to the latest Maverick Music Flow Engine [release](https://github.com/ambient-home-systems/maverick-music-flow-engine/releases), extract it, and copy the complete `custom_components/maverick_music_flow` folder into `/config/custom_components/`. The resulting file must be `/config/custom_components/maverick_music_flow/manifest.json`. Restart HA, then use **Add integration** above. Do not create an extra nested `custom_components` directory.
 
 ## Artwork lighting and listening insights (local beta candidate)
 
@@ -53,14 +53,14 @@ Radio Browser station queries can also run through the Engine (`radio/search`). 
 
 | Component | What it does | Repository |
 |---|---|---|
-| Music Flow `6.0.0` | Artwork-driven player, contextual wheels, library, queue, lyrics and touch interface | [HOMEii Music Flow](https://github.com/r11a/homeii-music-flow) |
-| Flow Engine `1.0.0` | Required HA integration that connects the card and automations to MA | [HOMEii Flow Engine](https://github.com/ambient-home-systems/maverick-music-flow-engine) |
+| Music Flow `6.0.0` | Artwork-driven player, contextual wheels, library, queue, lyrics and touch interface | [Maverick Music Flow](https://github.com/ambient-home-systems/maverick-music-flow) |
+| Flow Engine `1.0.0` | Required HA integration that connects the card and automations to MA | [Maverick Music Flow Engine](https://github.com/ambient-home-systems/maverick-music-flow-engine) |
 
 The Engine is **not an add-on or a Music Assistant server**. It does not replace MA or HA's official Music Assistant integration. The browser connects to HA; the Engine maintains authenticated MA access and shares useful state with the card. MA remains authoritative for players, media and queues.
 
 ```mermaid
 flowchart LR
-  Card[HOMEii Music Flow card] --> HA[Home Assistant / Flow Engine]
+  Card[Maverick Music Flow card] --> HA[Home Assistant / Flow Engine]
   Automations[HA scripts and automations] --> HA
   HA <--> MA[Music Assistant server]
   MA <--> Providers[Music providers]
@@ -124,12 +124,12 @@ Stable release packages are available from GitHub Releases and through this cust
 
 5. `manifest.json` must be directly inside `maverick_music_flow`. Do not copy a repository ZIP as an integration, copy only one Python file, or create `maverick_music_flow/maverick_music_flow/manifest.json` accidentally.
 6. Run HA's configuration check, then **restart Home Assistant**.
-7. Go to **Settings → Devices & services → Add integration → HOMEii Flow Engine**.
+7. Go to **Settings → Devices & services → Add integration → Maverick Music Flow Engine**.
 8. Fill the connection fields below and complete setup. Check for setup errors before installing the 6.0 card.
 
 ### HACS installation after public availability is arranged
 
-Add `https://github.com/ambient-home-systems/maverick-music-flow-engine` as a custom **Integration** repository, deliberately select the exact beta, download it and restart HA. Adding it in HACS installs files; it does **not** replace the Add integration/configuration steps. The matching [card repository](https://github.com/r11a/homeii-music-flow) is a separate **Dashboard** repository.
+Add `https://github.com/ambient-home-systems/maverick-music-flow-engine` as a custom **Integration** repository, deliberately select the exact beta, download it and restart HA. Adding it in HACS installs files; it does **not** replace the Add integration/configuration steps. The matching [card repository](https://github.com/ambient-home-systems/maverick-music-flow) is a separate **Dashboard** repository.
 
 For an existing installation, retain its config entry, update the full component directory and restart. Do not delete the entry just to change the MA URL or token. The update does not intentionally reset stored schedules or profiles.
 
@@ -138,7 +138,7 @@ For an existing installation, retain its config entry, update the full component
 | Field | What to enter | Example / guidance |
 |---|---|---|
 | Instance ID | Stable Engine instance identifier | Leave `default` for a single installation |
-| Profile ID | Namespace for stored HOMEii schedules/settings | Leave `default` unless deliberately separating profiles; changing it can make another profile's records appear absent |
+| Profile ID | Namespace for stored Maverick schedules/settings | Leave `default` unless deliberately separating profiles; changing it can make another profile's records appear absent |
 | Music Assistant URL | MA server HTTP(S) base URL reachable **from HA** | `http://192.168.1.10:8095` is an example, not a universal port |
 | External MA URL | Optional external HTTPS server/API fallback | Use only if you have intentionally configured that route. It is not the HA dashboard/ingress URL and does not automatically solve browser audio restrictions |
 | MA API token | A valid Music Assistant API token | Create it in your MA installation; do not use an HA token or paste it into dashboard YAML, screenshots or issues |
@@ -146,20 +146,20 @@ For an existing installation, retain its config entry, update the full component
 | Allow non-admin users to manage schedules, timers and volume rules | Options only, off by default | Turn on when your dashboards run as non-admin HA users and those users should create, change, run or delete schedules, timers and volume rules. They still need HA's permission to control the target player. See [permissions](#diagnostics-permissions-and-privacy) |
 | Allow announcements and playback from local network URLs | Options only, off by default | Turn on when announcements or `play_media` should use `http(s)` URLs on a media server in your private network (for example a NAS at `192.168.x.x`). The Music Assistant URL and this HA instance's own URL are always allowed. See [URL media](#diagnostics-permissions-and-privacy) |
 
-To update an existing connection: **Settings → Devices & services → HOMEii Flow Engine → Configure → General settings**. Leaving the token field blank in that edit flow preserves the saved token. Initial setup requires a token. Token fields are masked, and the token is stored once, in the config entry's data (entries created by older releases are migrated automatically).
+To update an existing connection: **Settings → Devices & services → Maverick Music Flow Engine → Configure → General settings**. Leaving the token field blank in that edit flow preserves the saved token. Initial setup requires a token. Token fields are masked, and the token is stored once, in the config entry's data (entries created by older releases are migrated automatically).
 
-Keep the official MA integration installed. First resolve failures in native MA; HOMEii cannot repair an offline provider or a speaker unsupported by MA.
+Keep the official MA integration installed. First resolve failures in native MA; the Engine cannot repair an offline provider or a speaker unsupported by MA.
 
 ## Connect the card
 
 After the Engine loads, install the exact matching `6.0.0` card. Configure connection credentials in the Engine only:
 
 ```yaml
-type: custom:homeii-music-flow
-homeii_engine_mode: required
+type: custom:maverick-music
+engine_mode: required
 ```
 
-Do not load the old and new card scripts simultaneously. Run card diagnostics and confirm the Engine version, MA connection and selected player. The complete [5.9.3 upgrade guide](https://github.com/r11a/homeii-music-flow/blob/codex/v6-release-candidate/docs/BETA_GUIDE.md) explains resource changes, rollback and browser settings.
+Do not load the old and new card scripts simultaneously. Run card diagnostics and confirm the Engine version, MA connection and selected player. The card repository's [troubleshooting guide](https://github.com/ambient-home-systems/maverick-music-flow/blob/main/docs/troubleshooting.md) explains resource changes, rollback and browser settings.
 
 ## Entities you can use in HA
 
@@ -172,7 +172,7 @@ The integration declares sensor, binary sensor, switch, button, number and calen
 | Switches | Stored schedules, timers, volume rules and system screensaver enablement |
 | Buttons | Refresh/orchestration, running a schedule now and showing the screensaver |
 | Numbers | Rule volume controls and screensaver timeout |
-| Calendar | Upcoming stored HOMEii schedules |
+| Calendar | Upcoming stored Maverick schedules |
 
 Actual entity IDs are generated by HA and may have suffixes. Select them in the UI; do not assume an example entity ID exists in your installation.
 
@@ -312,9 +312,9 @@ Open beta areas include long-running groups, device-specific DLNA, Safari/iOS ba
 
 ## Reporting and contributing
 
-[Engine issues](https://github.com/ambient-home-systems/maverick-music-flow-engine/issues) are for integration setup, backend behavior and services; [card issues](https://github.com/r11a/homeii-music-flow/issues) are for visual behavior and card navigation. The Engine tracker is visible only to permitted users while the repository is private.
+[Engine issues](https://github.com/ambient-home-systems/maverick-music-flow-engine/issues) are for integration setup, backend behavior and services; [card issues](https://github.com/ambient-home-systems/maverick-music-flow/issues) are for visual behavior and card navigation.
 
-Report both HOMEii versions, HA and MA versions/schema, player model/protocol, provider, exact steps, expected/actual result, native MA comparison and redacted diagnostics. For announcements or groups specify the target speakers. Never post tokens, cookies or full backups.
+Report both the card and Engine versions, HA and MA versions/schema, player model/protocol, provider, exact steps, expected/actual result, native MA comparison and redacted diagnostics. For announcements or groups specify the target speakers. Never post tokens, cookies or full backups.
 
 ### Running the tests
 
@@ -342,15 +342,15 @@ ruff check .
 ruff format --check .
 ```
 
-The preceding 0.7.21 source passed 52 regression tests and repository validation. Beta version labeling and package validation are checked separately; a passed unit suite does not certify every home installation. Runtime/state, MA transport, queue validation and Sendspin are separate responsibilities in the source, although `runtime.py` still needs further focused modularization.
+The preceding `1.0.0` source passed 405 pytest tests (plus the 290-test `unittest` suite pytest also collects) and repository validation. Beta version labeling and package validation are checked separately; a passed unit suite does not certify every home installation. Runtime/state, MA transport, queue validation and Sendspin are separate responsibilities in the source, although `runtime.py` still needs further focused modularization.
 
 `.github/workflows/validate.yml` runs all of the above on every push and pull request, plus [`home-assistant/actions/hassfest`](https://github.com/home-assistant/actions) (Home Assistant's own manifest, translation and integration-structure checks) and [`hacs/action`](https://github.com/hacs/action) (HACS's repository checks). A `mypy` job also runs but does not block merges yet: the codebase has no prior type-checking baseline, and plain `mypy` cannot see through `voluptuous`'s schema-building style without a dedicated plugin.
 
 ## Identity and credits
 
-HOMEii Flow uses the same gold wave mark in both projects. Root `icon.png`/`logo.png`, integration assets and screensaver assets retain their natural aspect ratio. README images link to local repository assets, so they do not depend on an unpublished tag. HA's integration-brand catalog is a separate publication process; placing icons in this repository alone does not guarantee every HA/HACS surface displays them.
+Maverick Music Flow uses the same "M" mark in both projects. Root `icon.png`/`logo.png`, integration assets and screensaver assets retain their natural aspect ratio. README images link to local repository assets, so they do not depend on an unpublished tag. HA's integration-brand catalog is a separate publication process; placing icons in this repository alone does not guarantee every HA/HACS surface displays them.
 
-Built for Home Assistant and Music Assistant, with community feedback shaping the beta. See the [card repository](https://github.com/r11a/homeii-music-flow) for interface credits and community translations, including the German contribution by rtreichl.
+Built for Home Assistant and Music Assistant, with community feedback shaping the beta. See the [card repository](https://github.com/ambient-home-systems/maverick-music-flow) for interface credits and community translations, including the German contribution by rtreichl.
 
 Licensed under the [MIT License](LICENSE), with the permission of the upstream HOMEii Flow Engine author.
 
@@ -367,6 +367,6 @@ The Smart screen also edits the existing system screensaver and artwork-lighting
 
 Choose Automatic to create a dedicated token using your Music Assistant built-in username and password (not your Home Assistant credentials). The server address and API schema are checked before you sign in. The password is not stored, the temporary login session is signed out, and a token that then fails the connection check is revoked. An `http://` address sends the credentials unencrypted, so the sign-in form shows a warning. Alternatively choose Manual and paste a long-lived token from Music Assistant Settings → Profile. HA ingress URLs are rejected with guidance to use the direct MA server address. Keep Instance ID and Default Profile ID as default for a standard single installation.
 
-[Beginner installation and rollback guide](https://github.com/r11a/homeii-music-flow/blob/v6.0.0/docs/INSTALL_STEP_BY_STEP.md).
+[Beginner installation and rollback guide](https://github.com/ambient-home-systems/maverick-music-flow/blob/main/docs/getting-started.md).
 
 

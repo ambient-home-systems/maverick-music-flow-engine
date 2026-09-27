@@ -1,4 +1,4 @@
-"""Runtime state and backend helpers for HOMEii Flow Engine."""
+"""Runtime state and backend helpers for Maverick Music Flow Engine."""
 
 from __future__ import annotations
 
@@ -467,7 +467,7 @@ def _homeii_weekday(now: datetime) -> int:
 
 
 def _schedule_days(schedule: dict[str, Any]) -> list[int]:
-    """Return normalized HOMEii weekday indexes for a schedule."""
+    """Return normalized Maverick weekday indexes for a schedule."""
     days: list[int] = []
     for raw_day in _safe_list(schedule.get("days")):
         if not str(raw_day).strip():
@@ -555,12 +555,12 @@ def _time_window_active(now: datetime, start_time: str, end_time: str) -> bool:
 
 @dataclass(slots=True)
 class EngineEntry:
-    """Loaded HOMEii Flow Engine config entry."""
+    """Loaded Maverick Music Flow Engine config entry."""
 
     entry_id: str
     instance_id: str = DEFAULT_INSTANCE_ID
     profile_id: str = DEFAULT_PROFILE_ID
-    title: str = "HOMEii Flow Engine"
+    title: str = "Maverick Music Flow Engine"
     enable_experimental: bool = False
     allow_non_admin_management: bool = False
     allow_local_media_urls: bool = False
@@ -676,7 +676,7 @@ class HomeiiScheduleActionQueue:
 
 
 class HomeiiScheduleRunner:
-    """Own the timer and action queue for one HOMEii schedule."""
+    """Own the timer and action queue for one Maverick schedule."""
 
     def __init__(self, manager: HomeiiScheduleManager, schedule: dict[str, Any]) -> None:
         """Initialize a runner for one schedule."""
@@ -1693,7 +1693,7 @@ class HomeiiFlowRuntime:
         try:
             stored = await self._media_cache_store.async_load()
         except Exception:  # noqa: BLE001 - cache corruption must not block integration setup
-            _LOGGER.warning("Could not load HOMEii media cache; starting with an empty cache")
+            _LOGGER.warning("Could not load Maverick media cache; starting with an empty cache")
             self._media_cache_metrics["load_failures"] = (
                 int(self._media_cache_metrics.get("load_failures") or 0) + 1
             )
@@ -1862,7 +1862,7 @@ class HomeiiFlowRuntime:
             self._media_cache_metrics["persist_failures"] = (
                 int(self._media_cache_metrics.get("persist_failures") or 0) + 1
             )
-            _LOGGER.warning("Could not persist HOMEii media cache")
+            _LOGGER.warning("Could not persist Maverick media cache")
             return
         self._media_cache_metrics["last_persist_at"] = _utc_iso()
         self._media_cache_metrics["persistent_entries"] = len(entries)
@@ -2019,7 +2019,7 @@ class HomeiiFlowRuntime:
         """
         if not self._active:
             target.close()
-            raise HomeiiFlowServiceUnavailable("HOMEii Flow Engine is not loaded")
+            raise HomeiiFlowServiceUnavailable("Maverick Music Flow Engine is not loaded")
         if background:
             task = self.hass.async_create_background_task(target, name=name)
         else:
@@ -2090,7 +2090,7 @@ class HomeiiFlowRuntime:
         _done, pending = await asyncio.wait(tasks, timeout=SHUTDOWN_TASK_TIMEOUT)
         if pending:
             _LOGGER.warning(
-                "%s HOMEii Flow Engine task(s) did not stop within %s seconds",
+                "%s Maverick Music Flow Engine task(s) did not stop within %s seconds",
                 len(pending),
                 SHUTDOWN_TASK_TIMEOUT,
             )
@@ -2257,7 +2257,7 @@ class HomeiiFlowRuntime:
             entry_id=entry_id,
             instance_id=instance_id or DEFAULT_INSTANCE_ID,
             profile_id=profile_id or DEFAULT_PROFILE_ID,
-            title=title or "HOMEii Flow Engine",
+            title=title or "Maverick Music Flow Engine",
             enable_experimental=enable_experimental,
             allow_non_admin_management=bool(allow_non_admin_management),
             allow_local_media_urls=bool(allow_local_media_urls),
@@ -2297,7 +2297,7 @@ class HomeiiFlowRuntime:
                 player_snapshot = await self.async_players_snapshot()
                 await self._async_music_assistant_contract_probe(player_snapshot, force=True)
             except Exception as err:  # noqa: BLE001 - diagnostics expose startup failures
-                _LOGGER.warning("HOMEii Flow Engine Music Assistant probe failed: %s", err)
+                _LOGGER.warning("Maverick Music Flow Engine Music Assistant probe failed: %s", err)
             finally:
                 async_dispatcher_send(self.hass, SIGNAL_ENGINE_UPDATED)
 
@@ -2496,8 +2496,8 @@ class HomeiiFlowRuntime:
             "capabilities": CAPABILITIES,
             "frontend": {
                 "system_screensaver_url": "/maverick_music_flow/maverick-music-flow-system-screensaver.js",
-                "brand_icon_url": "/maverick_music_flow/homeii-flow-icon.png",
-                "brand_logo_url": "/maverick_music_flow/homeii-flow-logo.png",
+                "brand_icon_url": "/maverick_music_flow/maverick-music-flow-icon.png",
+                "brand_logo_url": "/maverick_music_flow/maverick-music-flow-logo.png",
             },
             "entries": [loaded.as_dict() for loaded in self.entries],
             "loaded_entries": len(self._entries),
@@ -2570,7 +2570,7 @@ class HomeiiFlowRuntime:
         *,
         all_players: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """Return the required backend connections for HOMEii Flow 6."""
+        """Return the required backend connections for Maverick Music Flow."""
         services = self.hass.services.async_services()
         music_assistant_services = sorted(services.get("music_assistant", {}).keys())
         entries = self.music_assistant_config_entries_snapshot()
@@ -4442,7 +4442,7 @@ class HomeiiFlowRuntime:
         schedule = {
             "id": schedule_id,
             "profile_id": profile_id,
-            "name": str(payload.get("name") or "HOMEii schedule").strip(),
+            "name": str(payload.get("name") or "Maverick schedule").strip(),
             "player": str(payload.get("player") or payload.get("entity_id") or "").strip(),
             "kind": str(payload.get("kind") or payload.get("action") or "wake_playback").strip()
             or "wake_playback",
@@ -7243,7 +7243,7 @@ class HomeiiFlowRuntime:
         return {
             "accepted": True,
             "announcement": announcement,
-            "note": "Announcement was recorded by HOMEii Flow Engine.",
+            "note": "Announcement was recorded by Maverick Music Flow Engine.",
         }
 
     def sendspin_status(self, payload: dict[str, Any]) -> dict[str, Any]:

@@ -257,7 +257,7 @@ class MusicAssistantEventClient:
             {
                 "message_id": message_id,
                 "command": "auth",
-                "args": {"token": self._token, "device_name": "HOMEii Flow Engine"},
+                "args": {"token": self._token, "device_name": "Maverick Music Flow Engine"},
             }
         )
         while generation == self._generation:

@@ -73,7 +73,7 @@ async def search_stations(runtime, payload):
             "https://de1.api.radio-browser.info/json/stations/search",
             params=params,
             timeout=ClientTimeout(total=10),
-            headers={"Accept": "application/json", "User-Agent": "HOMEii-Flow-Engine/1.0"},
+            headers={"Accept": "application/json", "User-Agent": "Maverick-Music-Flow-Engine/1.0"},
         ) as response:
             response.raise_for_status()
             data = await response.json()

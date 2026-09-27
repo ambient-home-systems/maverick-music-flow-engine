@@ -1,9 +1,9 @@
-"""Constants for HOMEii Flow Engine."""
+"""Constants for Maverick Music Flow Engine."""
 
 from __future__ import annotations
 
 DOMAIN = "maverick_music_flow"
-NAME = "HOMEii Flow Engine"
+NAME = "Maverick Music Flow Engine"
 VERSION = "1.0.0"
 
 MUSIC_ASSISTANT_SCHEMA_MIN = 63
@@ -23,7 +23,7 @@ CONFIG_ENTRY_VERSION = 2
 
 DEFAULT_INSTANCE_ID = "default"
 DEFAULT_PROFILE_ID = "default"
-DEFAULT_NAME = "HOMEii Flow Engine"
+DEFAULT_NAME = "Maverick Music Flow Engine"
 PLATFORMS = ["binary_sensor", "button", "calendar", "number", "sensor", "switch"]
 
 STORAGE_KEY = f"{DOMAIN}.storage"
@@ -32,7 +32,7 @@ MEDIA_CACHE_STORAGE_KEY = f"{DOMAIN}.media_cache"
 MEDIA_CACHE_STORAGE_VERSION = 2
 
 # Returned by views and WebSocket commands while no config entry is loaded.
-NOT_LOADED_MESSAGE = "HOMEii Flow Engine is not loaded"
+NOT_LOADED_MESSAGE = "Maverick Music Flow Engine is not loaded"
 
 EVENT_ENGINE_ANNOUNCEMENT = f"{DOMAIN}_announcement"
 EVENT_ENGINE_GROUP_APPLY = f"{DOMAIN}_group_apply"

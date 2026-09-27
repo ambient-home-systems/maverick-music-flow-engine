@@ -810,7 +810,7 @@ def load_command_view(runtime):
             HTTPServiceUnavailable=type("ServiceUnavailable", (HTTPError,), {}),
             json_response=lambda result: {"json": result},
         ),
-        "NOT_LOADED_MESSAGE": "HOMEii Flow Engine is not loaded",
+        "NOT_LOADED_MESSAGE": "Maverick Music Flow Engine is not loaded",
         "HTTP_COMMAND_SCHEMAS": bridge.HTTP_COMMAND_SCHEMAS,
         "music_assistant_command_allowed": bridge.music_assistant_command_allowed,
         "strip_internal_keys": bridge.strip_internal_keys,

@@ -1,4 +1,4 @@
-"""Diagnostics support for HOMEii Flow Engine."""
+"""Diagnostics support for Maverick Music Flow Engine."""
 
 from __future__ import annotations
 

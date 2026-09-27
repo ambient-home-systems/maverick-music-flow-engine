@@ -33,7 +33,7 @@ LIBRARY_ITEM_ROOTS = (
 )
 
 # Exact Music Assistant commands that may run with the Engine's MA token. Each entry is
-# sent by the Engine itself or by the HOMEii Music Flow card. Anything else is denied,
+# sent by the Engine itself or by the Maverick Music Flow card. Anything else is denied,
 # including player and group creation or removal, configuration, providers, sync,
 # import/export and authentication.
 MUSIC_ASSISTANT_COMMAND_ALLOWLIST: frozenset[str] = frozenset(

@@ -1,4 +1,4 @@
-"""WebSocket API for HOMEii Flow Engine."""
+"""WebSocket API for Maverick Music Flow Engine."""
 
 from __future__ import annotations
 
@@ -102,7 +102,7 @@ def _authorize(hass: HomeAssistant, connection: ActiveConnection, msg: dict[str,
 
 
 def async_register_websocket_commands(hass: HomeAssistant) -> None:
-    """Register HOMEii Flow Engine websocket commands."""
+    """Register Maverick Music Flow Engine websocket commands."""
     websocket_api.async_register_command(hass, websocket_saved_playlists)
     websocket_api.async_register_command(hass, websocket_get_wheel_preferences)
     websocket_api.async_register_command(hass, websocket_set_wheel_preferences)

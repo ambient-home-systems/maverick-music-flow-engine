@@ -147,7 +147,7 @@ async def test_item_artwork_is_served_without_login(
     assert await response.read() == fake_ma.image
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["Content-Security-Policy"] == "default-src 'none'; sandbox"
-    assert response.headers["X-HOMEii-Flow-Artwork-Source"] == "item-proxy"
+    assert response.headers["X-Maverick-Flow-Artwork-Source"] == "item-proxy"
     # The MA token is sent to the configured MA server only.
     assert fake_ma.image_requests[-1]["authorization"] == f"Bearer {MA_TOKEN}"
     etag = response.headers["ETag"]
@@ -156,7 +156,7 @@ async def test_item_artwork_is_served_without_login(
     response = await client.get(url, headers={"If-None-Match": etag})
     assert response.status == HTTPStatus.NOT_MODIFIED
     response = await client.get(url)
-    assert response.headers["X-HOMEii-Flow-Artwork-Source"] == "memory-cache"
+    assert response.headers["X-Maverick-Flow-Artwork-Source"] == "memory-cache"
     assert len(fake_ma.image_requests) == fetches
 
 

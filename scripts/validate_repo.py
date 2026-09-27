@@ -1,4 +1,4 @@
-"""Lightweight repository validation for HOMEii Flow Engine."""
+"""Lightweight repository validation for Maverick Music Flow Engine."""
 
 from __future__ import annotations
 
@@ -73,8 +73,8 @@ def main() -> None:
         component / "icon.png",
         component / "logo.png",
         component / "frontend" / "maverick-music-flow-system-screensaver.js",
-        component / "frontend" / "homeii-flow-icon.png",
-        component / "frontend" / "homeii-flow-logo.png",
+        component / "frontend" / "maverick-music-flow-icon.png",
+        component / "frontend" / "maverick-music-flow-logo.png",
         component / "translations" / "en.json",
         ROOT / "icon.png",
         ROOT / "logo.png",
@@ -145,7 +145,7 @@ def main() -> None:
     }
     for label, marker in forbidden_runtime_paths.items():
         if marker in runtime_text:
-            raise SystemExit(f"Forbidden HOMEii Flow 6 runtime path remains: {label}")
+            raise SystemExit(f"Forbidden Maverick Music Flow runtime path remains: {label}")
 
     # Behavior that used to be enforced here by grepping for private attribute names and
     # capability-dict literals (for example "hashlib.blake2s" or "_queue_inflight") is
@@ -163,7 +163,7 @@ def main() -> None:
     #   - snapshot ordering metadata (epoch/revision): tests/ha/test_websocket_api.py
     #     (test_queue_get, test_library_get)
 
-    print("HOMEii Flow Engine repo validation passed.")
+    print("Maverick Music Flow Engine repo validation passed.")
 
 
 if __name__ == "__main__":

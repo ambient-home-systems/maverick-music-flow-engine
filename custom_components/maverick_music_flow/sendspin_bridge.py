@@ -148,7 +148,9 @@ class HomeiiFlowSendspinView(HomeAssistantView):
         urls = runtime.music_assistant_base_urls()
         tokens = runtime.music_assistant_tokens()
         if not urls or not tokens:
-            raise web.HTTPServiceUnavailable(text="Configure Music Assistant in HOMEii Flow Engine")
+            raise web.HTTPServiceUnavailable(
+                text="Configure Music Assistant in Maverick Music Flow Engine"
+            )
         user_id = request["hass_user"].id
         if not await self.registry.async_claim(runtime, client_id, user_id):
             raise web.HTTPForbidden(text="This player id belongs to another user")

@@ -1,4 +1,4 @@
-"""Config flow for HOMEii Flow Engine."""
+"""Config flow for Maverick Music Flow Engine."""
 
 from __future__ import annotations
 
@@ -240,7 +240,7 @@ def _timer_choices(runtime: Any | None, profile_id: str) -> dict[str, str]:
 
 
 class HomeiiFlowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a HOMEii Flow Engine config flow."""
+    """Handle a Maverick Music Flow Engine config flow."""
 
     VERSION = CONFIG_ENTRY_VERSION
 
@@ -347,7 +347,7 @@ class HomeiiFlowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if not await revoke_onboarding_token(async_get_clientsession(self.hass), url, token):
             _LOGGER.warning(
                 "Could not revoke the unused Music Assistant token created during setup; "
-                "delete the HOMEii Flow Engine token in Music Assistant settings"
+                "delete the Maverick Music Flow Engine token in Music Assistant settings"
             )
 
     def _async_create_music_assistant_entry(
@@ -448,7 +448,7 @@ class HomeiiFlowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class HomeiiFlowOptionsFlow(config_entries.OptionsFlow):
-    """Handle HOMEii Flow Engine options."""
+    """Handle Maverick Music Flow Engine options."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
