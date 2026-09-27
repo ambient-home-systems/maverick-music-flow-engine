@@ -80,6 +80,7 @@ def main() -> None:
         ROOT / "logo.png",
         ROOT / "hacs.json",
         ROOT / "README.md",
+        ROOT / "LICENSE",
     ]
     missing = [str(path.relative_to(ROOT)) for path in required_files if not path.exists()]
     if missing:

@@ -352,6 +352,8 @@ HOMEii Flow uses the same gold wave mark in both projects. Root `icon.png`/`logo
 
 Built for Home Assistant and Music Assistant, with community feedback shaping the beta. See the [card repository](https://github.com/r11a/homeii-music-flow) for interface credits and community translations, including the German contribution by rtreichl.
 
+Licensed under the [MIT License](LICENSE), with the permission of the upstream HOMEii Flow Engine author.
+
 
 ### Shared night display preferences
 
