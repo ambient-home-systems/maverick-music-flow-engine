@@ -550,7 +550,9 @@ class HomeiiFlowCommandView(HomeAssistantView):
         if clean_command == "get_context":
             result = runtime.context(instance_id=instance_id, profile_id=profile_id)
         elif clean_command == "bootstrap/get":
-            result = runtime.bootstrap_snapshot(instance_id=instance_id, profile_id=profile_id)
+            result = await runtime.async_bootstrap_snapshot(
+                instance_id=instance_id, profile_id=profile_id
+            )
         elif clean_command == "queue/get":
             result = await runtime.async_get_queue(payload)
         elif clean_command == "library/get":

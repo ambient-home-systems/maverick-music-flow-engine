@@ -477,8 +477,8 @@ class FakeRuntime:
     def context(self, **kwargs):
         return self._record("context", kwargs)
 
-    def bootstrap_snapshot(self, **kwargs):
-        return self._record("bootstrap_snapshot", kwargs)
+    async def async_bootstrap_snapshot(self, **kwargs):
+        return self._record("async_bootstrap_snapshot", kwargs)
 
     async def async_get_queue(self, payload):
         return self._record("async_get_queue", payload)
