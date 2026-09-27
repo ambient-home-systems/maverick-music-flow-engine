@@ -148,7 +148,7 @@ set_schedule:
             - shuffle
     retry_attempts:
       name: Retry attempts
-      description: Number of backend playback attempts when a scheduled action does not start immediately.
+      description: Number of attempts to send the scheduled play command when Music Assistant does not accept it. A command Music Assistant accepted is never sent again; the remaining attempts are spent checking that it took effect.
       default: 4
       selector:
         number:
@@ -157,7 +157,7 @@ set_schedule:
           mode: box
     retry_delay:
       name: Retry delay
-      description: Seconds to wait between scheduled playback attempts.
+      description: Seconds to wait between scheduled playback attempts or checks.
       default: 5
       selector:
         number:

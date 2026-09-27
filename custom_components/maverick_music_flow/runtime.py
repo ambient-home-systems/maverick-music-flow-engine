@@ -49,7 +49,7 @@ from .const import (
     STORAGE_VERSION,
     VERSION,
 )
-from .exceptions import HomeiiFlowServiceUnavailable
+from .exceptions import HomeiiFlowPlaybackUnconfirmed, HomeiiFlowServiceUnavailable
 from .ma_client import MusicAssistantEventClient
 from .media_url_policy import async_validate_media_reference, command_media_references
 from .player_timing import playback_position_pair
@@ -57,6 +57,11 @@ from .queue_controls import build_playback_speed, build_queue_switch
 from .queue_settings import async_queue_settings
 
 _LOGGER = logging.getLogger(__name__)
+
+# How long play_media polls the MA queue to confirm an accepted play command
+# (20 x 0.4 s = 8 s).
+_PLAY_VERIFY_POLLS = 20
+_PLAY_VERIFY_INTERVAL = 0.4
 
 # How long unload waits for cancelled tasks, so a stuck task cannot block it.
 SHUTDOWN_TASK_TIMEOUT = 10
@@ -439,6 +444,19 @@ def _playback_snapshot_changed(before: dict[str, Any], after: dict[str, Any]) ->
         after.get(key) and after.get(key) != before.get(key)
         for key in ("media_title", "media_content_id", "active_queue")
     )
+
+
+def _queue_item_count(snapshot: Any) -> int | None:
+    """Return a MA queue snapshot's total item count, or None when it is not reported."""
+    if not isinstance(snapshot, dict):
+        return None
+    for key in ("items", "items_count"):
+        value = snapshot.get(key)
+        if isinstance(value, bool) or not isinstance(value, int):
+            continue
+        if value >= 0:
+            return value
+    return None
 
 
 def _parse_hhmm(value: Any) -> tuple[int, int] | None:
@@ -3817,11 +3835,18 @@ class HomeiiFlowRuntime:
         if not player or not media_id:
             raise ValueError("player and media_id are required")
         await self._async_validate_media_reference(media_id, payload.get("instance_id"))
-        verify_playback = bool(payload.get("verify_playback")) and enqueue in {
-            "play",
-            "replace",
-            "shuffle",
-        }
+        # "playback": the new item must be playing. "queue": add/next only grow the
+        # queue, so the queue item count must go up. Other options (replace_next) have
+        # no reliable signal, so their verification is skipped.
+        verification_mode = ""
+        if payload.get("verify_playback"):
+            if enqueue in {"play", "replace", "shuffle"}:
+                verification_mode = "playback"
+            elif enqueue in {"add", "next"}:
+                verification_mode = "queue"
+            else:
+                verification_mode = "none"
+        verify_playback = verification_mode == "playback"
         readiness = self._player_readiness(player)
         if verify_playback and not readiness.get("ready"):
             raise HomeiiFlowServiceUnavailable(
@@ -3877,32 +3902,32 @@ class HomeiiFlowRuntime:
             )
         # Verification follows the authoritative MA queue, including native-only players.
         # Merely still playing the previous song is not confirmation of this request.
+        # From here on Music Assistant has accepted the command: a caller must not
+        # re-send it, or the media is played or queued twice.
         verified = False
+        verification = "not_requested"
         after_snapshot: dict[str, Any] = {}
         self._stats_cache = None
         self._bump_snapshot_revision("players", "queue", reason="play_media")
-        if verify_playback:
-            before_item = before_snapshot.get("current_item") or {}
-            for _ in range(20):
-                response = await self.async_music_assistant_command(
-                    {"command": "player_queues/get", "args": {"queue_id": queue_id}}
-                )
-                after_snapshot = response.get("data") if isinstance(response, dict) else response
-                after_snapshot = after_snapshot if isinstance(after_snapshot, dict) else {}
-                current_item = after_snapshot.get("current_item") or {}
-                changed_item = bool(
-                    current_item.get("queue_item_id")
-                    and current_item.get("queue_item_id") != before_item.get("queue_item_id")
-                )
-                if after_snapshot.get("state") == "playing" and changed_item:
-                    verified = True
+        if verification_mode == "none" or (
+            verification_mode == "queue" and _queue_item_count(before_snapshot) is None
+        ):
+            # Nothing to check, or no before count to compare against.
+            verification = "skipped"
+        elif verification_mode:
+            verification = "unconfirmed"
+            for _ in range(_PLAY_VERIFY_POLLS):
+                try:
+                    verified, after_snapshot = await self._async_check_play_confirmation(
+                        queue_id, verification_mode, before_snapshot
+                    )
+                except Exception:  # noqa: BLE001 - a failed read must not look like a failed play
+                    verified = False
+                if verified:
+                    verification = "verified"
                     break
-                await asyncio.sleep(0.4)
-            if not verified:
-                raise HomeiiFlowServiceUnavailable(
-                    "Music Assistant accepted the queue command, but the player did not confirm playback."
-                )
-        return {
+                await asyncio.sleep(_PLAY_VERIFY_INTERVAL)
+        result = {
             "ok": True,
             "player": player,
             "player_id": ma_player_id,
@@ -3912,11 +3937,46 @@ class HomeiiFlowRuntime:
             "enqueue": enqueue,
             "provider": "music_assistant.server_command:player_queues/play_media",
             "verified": verified,
+            "verification": verification,
+            "verification_mode": verification_mode,
             "readiness": readiness,
             "player_before": before_snapshot,
             "player_after": after_snapshot,
             "executed_at": _utc_iso(),
         }
+        if verify_playback and not verified:
+            raise HomeiiFlowPlaybackUnconfirmed(
+                "Music Assistant accepted the queue command, but the player did not confirm playback.",
+                result,
+            )
+        return result
+
+    async def _async_check_play_confirmation(
+        self, queue_id: str, verification_mode: str, before_snapshot: dict[str, Any]
+    ) -> tuple[bool, dict[str, Any]]:
+        """Read the MA queue once and return whether it confirms an accepted play command.
+
+        This only reads: it never re-sends the play command.
+        """
+        response = await self.async_music_assistant_command(
+            {"command": "player_queues/get", "args": {"queue_id": queue_id}}
+        )
+        after_snapshot = response.get("data") if isinstance(response, dict) else response
+        after_snapshot = after_snapshot if isinstance(after_snapshot, dict) else {}
+        if verification_mode == "queue":
+            before_count = _queue_item_count(before_snapshot)
+            after_count = _queue_item_count(after_snapshot)
+            confirmed = (
+                before_count is not None and after_count is not None and after_count > before_count
+            )
+            return confirmed, after_snapshot
+        before_item = before_snapshot.get("current_item") or {}
+        current_item = after_snapshot.get("current_item") or {}
+        changed_item = bool(
+            current_item.get("queue_item_id")
+            and current_item.get("queue_item_id") != before_item.get("queue_item_id")
+        )
+        return after_snapshot.get("state") == "playing" and changed_item, after_snapshot
 
     async def async_player_command(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Run a player command through the MA 2.10 player API."""
@@ -4588,22 +4648,29 @@ class HomeiiFlowRuntime:
         play_result: dict[str, Any] = {}
         play_error = ""
         verified = False
+        verification = ""
         schedule_attempts: list[dict[str, Any]] = []
         max_attempts = _bounded_int(schedule.get("retry_attempts"), 4, 1, 12)
         retry_delay = _bounded_int(schedule.get("retry_delay"), 5, 1, 30)
         if media_id:
+            # Only a command Music Assistant did not accept is retried. Once MA accepts
+            # it, re-sending would play or queue the media again, so the rest of the
+            # retry budget is spent checking the queue instead.
+            accepted = False
+            attempt_index = 0
+            attempt_record: dict[str, Any] = {}
             for attempt_index in range(max_attempts):
                 readiness = self._player_readiness(player)
-                attempt_record: dict[str, Any] = {
+                attempt_record = {
                     "attempt": attempt_index + 1,
                     "at": _utc_iso(),
                     "readiness": readiness,
                 }
+                schedule_attempts.append(attempt_record)
                 if not readiness.get("ready"):
                     play_error = str(readiness.get("reason") or "player is not ready")
                     attempt_record["ok"] = False
                     attempt_record["error"] = play_error
-                    schedule_attempts.append(attempt_record)
                 else:
                     try:
                         play_result = await self.async_play_media(
@@ -4616,52 +4683,70 @@ class HomeiiFlowRuntime:
                                 "verify_playback": True,
                             }
                         )
-                        verified = bool(play_result.get("verified", True))
-                        attempt_record["ok"] = verified
-                        attempt_record["provider"] = play_result.get("provider")
-                        attempt_record["playback_attempts"] = play_result.get("attempts") or []
-                        if not verified:
-                            play_error = "Playback service was called, but the player did not confirm a change."
-                            attempt_record["error"] = play_error
-                        schedule_attempts.append(attempt_record)
+                        accepted = True
+                    except HomeiiFlowPlaybackUnconfirmed as err:
+                        play_result = err.result
+                        accepted = True
                     except Exception as err:  # noqa: BLE001 - every failed attempt is reported
                         play_error = str(err)
                         attempt_record["ok"] = False
                         attempt_record["error"] = play_error
-                        schedule_attempts.append(attempt_record)
-                if verified:
+                if accepted:
                     break
                 if attempt_index < max_attempts - 1:
                     await asyncio.sleep(retry_delay)
-                    if play_result:
+            if accepted:
+                verification = str(play_result.get("verification") or "")
+                verified = bool(play_result.get("verified"))
+                attempt_record["provider"] = play_result.get("provider")
+                attempt_record["playback_attempts"] = play_result.get("attempts") or []
+                attempt_record["verification"] = verification
+                verification_mode = str(play_result.get("verification_mode") or "")
+                queue_id = str(play_result.get("queue_id") or "")
+                queue_before = play_result.get("player_before") or {}
+                for _ in range(max_attempts - 1 - attempt_index):
+                    if verified or verification != "unconfirmed":
+                        break
+                    await asyncio.sleep(retry_delay)
+                    try:
+                        verified, queue_after = await self._async_check_play_confirmation(
+                            queue_id, verification_mode, queue_before
+                        )
+                    except Exception:  # noqa: BLE001 - a failed check is not a failed play
+                        verified = False
+                    else:
+                        if verified:
+                            play_result["player_after"] = queue_after
+                    if not verified and verification_mode == "playback":
                         delayed_after = _player_playback_snapshot(self.hass.states.get(player))
                         if _playback_snapshot_changed(player_before, delayed_after):
                             verified = True
-                            attempt_record["delayed_verified"] = True
                             attempt_record["delayed_player_after"] = delayed_after
                             play_result["player_after"] = delayed_after
-                            break
+                    if verified:
+                        verification = "verified"
+                        attempt_record["delayed_verified"] = True
+                        attempt_record["verification"] = verification
+                attempt_record["ok"] = verified or verification == "skipped"
+                if not attempt_record["ok"]:
+                    play_error = (
+                        "Music Assistant accepted the queue command, but the player did not "
+                        "confirm it; the command was not re-sent."
+                    )
+                    attempt_record["error"] = play_error
         else:
             play_error = str(
                 resolution.get("error") or "No playable media was resolved for this schedule."
             )
 
         provider = play_result.get("provider") or ""
+        # "skipped" means MA accepted the command and there was nothing to check.
+        ok = verified or verification == "skipped"
         error = ""
-        if not verified:
-            error_parts = [
-                part
-                for part in (
-                    play_error,
-                    "Playback service was called, but the target player did not report playback/media/queue changes."
-                    if play_result
-                    else "",
-                )
-                if part
-            ]
-            error = "; ".join(error_parts) or "Schedule playback did not start."
+        if not ok:
+            error = play_error or "Schedule playback did not start."
         result = {
-            "ok": verified,
+            "ok": ok,
             "schedule_id": schedule.get("id"),
             "phase": "playback" if media_id else "resolve",
             "player": player,
@@ -4674,6 +4759,7 @@ class HomeiiFlowRuntime:
             "media_mode": resolution.get("mode") or schedule.get("media_mode"),
             "provider": provider,
             "verified": verified,
+            "verification": verification,
             "attempts": play_result.get("attempts") or [],
             "schedule_attempts": schedule_attempts,
             "retry_attempts": max_attempts,
@@ -4687,15 +4773,15 @@ class HomeiiFlowRuntime:
             "executed_at": _utc_iso(),
         }
         await self.async_record_activity(
-            "schedule_executed" if verified else "schedule_failed",
-            f"Schedule {'executed' if verified else 'failed'}: {schedule.get('name') or schedule.get('id')}",
+            "schedule_executed" if ok else "schedule_failed",
+            f"Schedule {'executed' if ok else 'failed'}: {schedule.get('name') or schedule.get('id')}",
             profile_id=str(schedule.get("profile_id") or DEFAULT_PROFILE_ID),
             data={
                 "schedule_id": schedule.get("id"),
                 "player": player,
                 "media_id": media_id,
                 "media_name": result.get("media_name"),
-                "ok": verified,
+                "ok": ok,
                 "error": error,
             },
         )
