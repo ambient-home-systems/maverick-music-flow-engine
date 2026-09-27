@@ -1,4 +1,4 @@
-"""Binary sensors for HOMEii Flow Engine."""
+"""Binary sensors for Maverick Music Flow Engine."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ from .runtime import HomeiiFlowRuntime
 
 @dataclass(frozen=True, kw_only=True)
 class HomeiiFlowBinarySensorDescription(BinarySensorEntityDescription):
-    """Describe a HOMEii Flow Engine binary sensor."""
+    """Describe a Maverick Music Flow Engine binary sensor."""
 
     is_on_fn: Callable[[HomeiiFlowRuntime, ConfigEntry], bool]
     attrs_fn: Callable[[HomeiiFlowRuntime, ConfigEntry], dict[str, Any]] | None = None
@@ -147,7 +147,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up HOMEii Flow Engine binary sensors."""
+    """Set up Maverick Music Flow Engine binary sensors."""
     runtime = async_get_runtime(hass)
     async_add_entities(
         HomeiiFlowBinarySensor(runtime, entry, description) for description in BINARY_SENSORS
@@ -155,7 +155,7 @@ async def async_setup_entry(
 
 
 class HomeiiFlowBinarySensor(BinarySensorEntity):
-    """HOMEii Flow Engine binary sensor."""
+    """Maverick Music Flow Engine binary sensor."""
 
     entity_description: HomeiiFlowBinarySensorDescription
     _attr_has_entity_name = True
@@ -186,8 +186,8 @@ class HomeiiFlowBinarySensor(BinarySensorEntity):
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
             name=self._entry.title or NAME,
-            manufacturer="HOMEii",
-            model="Flow Engine",
+            manufacturer="Maverick",
+            model="Music Flow Engine",
             sw_version=VERSION,
             configuration_url="https://github.com/ambient-home-systems/maverick-music-flow-engine",
             suggested_area=instance_id if instance_id != DEFAULT_INSTANCE_ID else None,

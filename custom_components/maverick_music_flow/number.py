@@ -1,4 +1,4 @@
-"""Number entities for HOMEii Flow Engine."""
+"""Number entities for Maverick Music Flow Engine."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up HOMEii Flow Engine number entities."""
+    """Set up Maverick Music Flow Engine number entities."""
     runtime = async_get_runtime(hass)
     profile_id = _profile_id(entry)
     registry = async_get_entity_registry(hass)
@@ -164,8 +164,8 @@ class HomeiiFlowVolumeRuleNumber(NumberEntity):
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
             name=self._entry.title or NAME,
-            manufacturer="HOMEii",
-            model="Flow Engine",
+            manufacturer="Maverick",
+            model="Music Flow Engine",
             sw_version=VERSION,
             configuration_url="https://github.com/ambient-home-systems/maverick-music-flow-engine",
             suggested_area=instance_id if instance_id != DEFAULT_INSTANCE_ID else None,
@@ -268,8 +268,8 @@ class HomeiiFlowScreensaverTimeoutNumber(NumberEntity):
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
             name=self._entry.title or NAME,
-            manufacturer="HOMEii",
-            model="Flow Engine",
+            manufacturer="Maverick",
+            model="Music Flow Engine",
             sw_version=VERSION,
             configuration_url="https://github.com/ambient-home-systems/maverick-music-flow-engine",
             suggested_area=instance_id if instance_id != DEFAULT_INSTANCE_ID else None,

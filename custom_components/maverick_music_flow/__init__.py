@@ -1,4 +1,4 @@
-"""HOMEii Flow Engine integration."""
+"""Maverick Music Flow Engine integration."""
 
 from __future__ import annotations
 
@@ -124,7 +124,7 @@ SERVICE_SET_SCHEDULE_SCHEMA = vol.Schema(
         vol.Optional(CONF_PROFILE_ID, default=DEFAULT_PROFILE_ID): str,
         vol.Optional("id"): str,
         vol.Optional("schedule_id"): str,
-        vol.Optional("name", default="HOMEii schedule"): str,
+        vol.Optional("name", default="Maverick schedule"): str,
         vol.Optional("kind", default="wake_playback"): str,
         vol.Optional("action", default="wake_playback"): str,
         vol.Required("player"): str,
@@ -427,7 +427,7 @@ class HomeiiFlowArtworkProxyView(HomeAssistantView):
                 content_type=payload.content_type,
                 headers={
                     "Cache-Control": "no-store, max-age=0",
-                    "X-HOMEii-Flow-Artwork-Source": "proxy",
+                    "X-Maverick-Flow-Artwork-Source": "proxy",
                     **ARTWORK_SECURITY_HEADERS,
                 },
             )
@@ -457,7 +457,7 @@ class HomeiiFlowItemArtworkProxyView(HomeiiFlowArtworkProxyView):
         headers = {
             "Cache-Control": "private, max-age=1800, stale-while-revalidate=86400",
             "ETag": etag,
-            "X-HOMEii-Flow-Artwork-Source": source_label,
+            "X-Maverick-Flow-Artwork-Source": source_label,
             **ARTWORK_SECURITY_HEADERS,
         }
         if request.headers.get("If-None-Match", "").strip() == etag:
@@ -512,7 +512,7 @@ class HomeiiFlowCommandView(HomeAssistantView):
         clean_command = str(command or "").strip().strip("/")
         schema = HTTP_COMMAND_SCHEMAS.get(clean_command)
         if schema is None:
-            raise web.HTTPNotFound(text="unsupported HOMEii Flow Engine command")
+            raise web.HTTPNotFound(text="unsupported Maverick Music Flow Engine command")
         try:
             body = await request.json()
         except Exception:  # noqa: BLE001 - malformed JSON should become a clear HTTP error
@@ -598,7 +598,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up HOMEii Flow Engine from a config entry."""
+    """Set up Maverick Music Flow Engine from a config entry."""
     try:
         runtime = await async_start_runtime(hass)
         _register_entry(runtime, entry)
@@ -646,7 +646,7 @@ def _register_entry(runtime: HomeiiFlowRuntime, entry: ConfigEntry) -> None:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a HOMEii Flow Engine config entry."""
+    """Unload a Maverick Music Flow Engine config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if not unload_ok:
         return False
@@ -668,7 +668,7 @@ async def _async_update_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 def async_get_runtime(hass: HomeAssistant) -> HomeiiFlowRuntime:
-    """Return the HOMEii Flow runtime."""
+    """Return the Maverick Music Flow runtime."""
     data = hass.data.setdefault(DOMAIN, {})
     runtime = data.get("runtime")
     if isinstance(runtime, HomeiiFlowRuntime):
@@ -702,7 +702,7 @@ async def async_start_runtime(hass: HomeAssistant) -> HomeiiFlowRuntime:
         hass.http.register_view(HomeiiFlowCommandView(hass))
         hass.http.register_view(HomeiiFlowSendspinView(hass))
         data["artwork_proxy_registered"] = True
-    _LOGGER.debug("HOMEii Flow Engine runtime started")
+    _LOGGER.debug("Maverick Music Flow Engine runtime started")
     return runtime
 
 

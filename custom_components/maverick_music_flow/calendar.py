@@ -1,4 +1,4 @@
-"""Calendar entities for HOMEii Flow Engine schedules."""
+"""Calendar entities for Maverick Music Flow Engine schedules."""
 
 from __future__ import annotations
 
@@ -50,13 +50,13 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the HOMEii Flow Engine schedule calendar."""
+    """Set up the Maverick Music Flow Engine schedule calendar."""
     runtime = async_get_runtime(hass)
     async_add_entities([HomeiiFlowScheduleCalendar(runtime, entry)])
 
 
 class HomeiiFlowScheduleCalendar(CalendarEntity):
-    """Expose HOMEii schedules as a Home Assistant calendar."""
+    """Expose Maverick schedules as a Home Assistant calendar."""
 
     _attr_has_entity_name = True
     _attr_name = "Schedules calendar"
@@ -81,8 +81,8 @@ class HomeiiFlowScheduleCalendar(CalendarEntity):
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
             name=self._entry.title or NAME,
-            manufacturer="HOMEii",
-            model="Flow Engine",
+            manufacturer="Maverick",
+            model="Music Flow Engine",
             sw_version=VERSION,
             configuration_url="https://github.com/ambient-home-systems/maverick-music-flow-engine",
             suggested_area=instance_id if instance_id != DEFAULT_INSTANCE_ID else None,
@@ -111,7 +111,7 @@ class HomeiiFlowScheduleCalendar(CalendarEntity):
         *,
         limit: int = 250,
     ) -> list[CalendarEvent]:
-        """Build calendar events from stored HOMEii schedules."""
+        """Build calendar events from stored Maverick schedules."""
         profile_id = _profile_id(self._entry)
         start = _as_local_datetime(start_date)
         end = _as_local_datetime(end_date, end_of_day=not isinstance(end_date, datetime))
@@ -163,7 +163,7 @@ class HomeiiFlowScheduleCalendar(CalendarEntity):
             schedule.get("name")
             or schedule.get("media_name")
             or schedule.get("playlist_name")
-            or "HOMEii schedule"
+            or "Maverick schedule"
         )
         media_name = str(schedule.get("media_name") or schedule.get("playlist_name") or "").strip()
         player = str(schedule.get("player") or "").strip()
@@ -179,5 +179,5 @@ class HomeiiFlowScheduleCalendar(CalendarEntity):
             start=event_start,
             end=event_start + timedelta(minutes=30),
             description="\n".join(detail for detail in details if detail),
-            uid=f"homeii-flow-{schedule.get('id') or schedule.get('schedule_id')}-{event_start.isoformat()}",
+            uid=f"maverick-music-flow-{schedule.get('id') or schedule.get('schedule_id')}-{event_start.isoformat()}",
         )

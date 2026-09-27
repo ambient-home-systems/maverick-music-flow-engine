@@ -1,11 +1,11 @@
 [project]
-name = "homeii-flow-engine"
+name = "maverick-music-flow-engine"
 version = "1.0.0"
-description = "Required Home Assistant backend engine for HOMEii Music Flow 6."
+description = "Required Home Assistant backend engine for Maverick Music Flow."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
-authors = [{ name = "HOMEii" }]
+authors = [{ name = "ambient-home-systems" }]
 
 [tool.ruff]
 target-version = "py312"

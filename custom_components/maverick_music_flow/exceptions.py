@@ -1,10 +1,10 @@
-"""Exceptions for HOMEii Flow Engine."""
+"""Exceptions for Maverick Music Flow Engine."""
 
 from __future__ import annotations
 
 
 class HomeiiFlowEngineError(Exception):
-    """Base HOMEii Flow Engine error."""
+    """Base Maverick Music Flow Engine error."""
 
 
 class HomeiiFlowServiceUnavailable(HomeiiFlowEngineError):

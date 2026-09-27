@@ -86,7 +86,9 @@ _EMBEDDED_URL_RE = re.compile(r"https?://", re.IGNORECASE)
 _UNSAFE_URL_RE = re.compile(r"[\s\\\x00-\x1f\x7f]")
 
 _NOT_ALLOWED = "Media URL is not allowed"
-_LOCAL_HINT = "An administrator can allow local network URLs in the HOMEii Flow Engine options."
+_LOCAL_HINT = (
+    "An administrator can allow local network URLs in the Maverick Music Flow Engine options."
+)
 
 
 class MediaUrlNotAllowed(ValueError):

@@ -1,4 +1,4 @@
-"""Button entities for HOMEii Flow Engine."""
+"""Button entities for Maverick Music Flow Engine."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ from .runtime import HomeiiFlowRuntime, _utc_iso
 
 @dataclass(frozen=True, kw_only=True)
 class HomeiiFlowButtonDescription(ButtonEntityDescription):
-    """Describe a HOMEii Flow Engine button."""
+    """Describe a Maverick Music Flow Engine button."""
 
     action: str
 
@@ -86,7 +86,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up HOMEii Flow Engine buttons."""
+    """Set up Maverick Music Flow Engine buttons."""
     runtime = async_get_runtime(hass)
     async_add_entities(HomeiiFlowButton(runtime, entry, description) for description in BUTTONS)
     profile_id = _profile_id(entry)
@@ -154,7 +154,7 @@ def _async_remove_button_entity(entity: ButtonEntity) -> None:
 
 
 class HomeiiFlowButton(ButtonEntity):
-    """HOMEii Flow Engine button."""
+    """Maverick Music Flow Engine button."""
 
     entity_description: HomeiiFlowButtonDescription
     _attr_has_entity_name = True
@@ -186,8 +186,8 @@ class HomeiiFlowButton(ButtonEntity):
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
             name=self._entry.title or NAME,
-            manufacturer="HOMEii",
-            model="Flow Engine",
+            manufacturer="Maverick",
+            model="Music Flow Engine",
             sw_version=VERSION,
             configuration_url="https://github.com/ambient-home-systems/maverick-music-flow-engine",
             suggested_area=instance_id if instance_id != DEFAULT_INSTANCE_ID else None,
@@ -308,8 +308,8 @@ class HomeiiFlowScheduleRunButton(ButtonEntity):
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
             name=self._entry.title or NAME,
-            manufacturer="HOMEii",
-            model="Flow Engine",
+            manufacturer="Maverick",
+            model="Music Flow Engine",
             sw_version=VERSION,
             configuration_url="https://github.com/ambient-home-systems/maverick-music-flow-engine",
             suggested_area=instance_id if instance_id != DEFAULT_INSTANCE_ID else None,

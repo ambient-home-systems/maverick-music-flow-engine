@@ -113,10 +113,10 @@ both before you paste the prompt; the prompt itself cannot change them.
    report what you found instead of changing code.
 3. **Stay in scope.** Only fix what the prompt describes. List any other problems you notice in the
    PR description; do not fix them in the same PR.
-4. **Card compatibility.** The HOMEii Music Flow card (github.com/r11a/homeii-music-flow) calls this
-   integration's WebSocket commands and HTTP views and reads their response fields. Do not rename
-   commands or remove response fields. If a change must break that contract, say so clearly in the
-   PR.
+4. **Card compatibility.** The Maverick Music Flow card (github.com/ambient-home-systems/maverick-music-flow,
+   forked from github.com/r11a/homeii-music-flow) calls this integration's WebSocket commands and
+   HTTP views and reads their response fields. Do not rename commands or remove response fields. If
+   a change must break that contract, say so clearly in the PR.
 5. **Tests.** Add or update tests for every behavior change. Until Prompt 5.1 lands, follow the
    existing style in `tests/` (unittest, extracting functions from the source). After it lands,
    prefer `pytest-homeassistant-custom-component` tests.

@@ -1,4 +1,4 @@
-"""Switch entities for HOMEii Flow Engine schedules, timers and volume rules."""
+"""Switch entities for Maverick Music Flow Engine schedules, timers and volume rules."""
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up HOMEii Flow Engine schedule, timer and volume-rule switches."""
+    """Set up Maverick Music Flow Engine schedule, timer and volume-rule switches."""
     runtime = async_get_runtime(hass)
     profile_id = _profile_id(entry)
     known_schedules: dict[str, HomeiiFlowScheduleSwitch] = {}
@@ -187,7 +187,7 @@ def _async_remove_entity(entity: SwitchEntity) -> None:
 
 
 class HomeiiFlowSystemScreensaverSwitch(SwitchEntity):
-    """Enable or disable the system-wide HOMEii screensaver agent."""
+    """Enable or disable the system-wide Maverick Music Flow screensaver agent."""
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:monitor-screenshot"
@@ -213,8 +213,8 @@ class HomeiiFlowSystemScreensaverSwitch(SwitchEntity):
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
             name=self._entry.title or NAME,
-            manufacturer="HOMEii",
-            model="Flow Engine",
+            manufacturer="Maverick",
+            model="Music Flow Engine",
             sw_version=VERSION,
             configuration_url="https://github.com/ambient-home-systems/maverick-music-flow-engine",
             suggested_area=instance_id if instance_id != "default" else None,
@@ -244,7 +244,7 @@ class HomeiiFlowSystemScreensaverSwitch(SwitchEntity):
 
 
 class HomeiiFlowScheduleSwitch(SwitchEntity):
-    """A HOMEii schedule represented as an HA switch with its own timer."""
+    """A Maverick schedule represented as an HA switch with its own timer."""
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:calendar-clock"
@@ -297,8 +297,8 @@ class HomeiiFlowScheduleSwitch(SwitchEntity):
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
             name=self._entry.title or NAME,
-            manufacturer="HOMEii",
-            model="Flow Engine",
+            manufacturer="Maverick",
+            model="Music Flow Engine",
             sw_version=VERSION,
             configuration_url="https://github.com/ambient-home-systems/maverick-music-flow-engine",
             suggested_area=instance_id if instance_id != "default" else None,
@@ -486,7 +486,7 @@ class HomeiiFlowScheduleSwitch(SwitchEntity):
 
 
 class HomeiiFlowTimerSwitch(SwitchEntity):
-    """A one-shot HOMEii timer represented as an HA switch with its own timer."""
+    """A one-shot Maverick timer represented as an HA switch with its own timer."""
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:timer-outline"
@@ -538,8 +538,8 @@ class HomeiiFlowTimerSwitch(SwitchEntity):
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
             name=self._entry.title or NAME,
-            manufacturer="HOMEii",
-            model="Flow Engine",
+            manufacturer="Maverick",
+            model="Music Flow Engine",
             sw_version=VERSION,
             configuration_url="https://github.com/ambient-home-systems/maverick-music-flow-engine",
             suggested_area=instance_id if instance_id != "default" else None,
@@ -692,7 +692,7 @@ class HomeiiFlowTimerSwitch(SwitchEntity):
 
 
 class HomeiiFlowVolumeRuleSwitch(SwitchEntity):
-    """A stored HOMEii volume rule represented as a Home Assistant switch."""
+    """A stored Maverick volume rule represented as a Home Assistant switch."""
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:volume-vibrate"
@@ -735,8 +735,8 @@ class HomeiiFlowVolumeRuleSwitch(SwitchEntity):
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
             name=self._entry.title or NAME,
-            manufacturer="HOMEii",
-            model="Flow Engine",
+            manufacturer="Maverick",
+            model="Music Flow Engine",
             sw_version=VERSION,
             configuration_url="https://github.com/ambient-home-systems/maverick-music-flow-engine",
             suggested_area=instance_id if instance_id != "default" else None,

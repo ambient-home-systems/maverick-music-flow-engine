@@ -105,7 +105,7 @@ async def create_onboarding_token(session, url, username, password):
                         "username": username,
                         "password": password,
                         "provider_id": "builtin",
-                        "device_name": "HOMEii Flow Engine setup",
+                        "device_name": "Maverick Music Flow Engine setup",
                     },
                 )
                 if (
@@ -118,11 +118,17 @@ async def create_onboarding_token(session, url, username, password):
                     ws,
                     "homeii_setup_2",
                     "auth",
-                    {"token": login["access_token"], "device_name": "HOMEii Flow Engine setup"},
+                    {
+                        "token": login["access_token"],
+                        "device_name": "Maverick Music Flow Engine setup",
+                    },
                 )
                 try:
                     created = await _command(
-                        ws, "homeii_setup_3", "auth/token/create", {"name": "HOMEii Flow Engine"}
+                        ws,
+                        "homeii_setup_3",
+                        "auth/token/create",
+                        {"name": "Maverick Music Flow Engine"},
                     )
                     if isinstance(created, str) and created.strip():
                         token = created
@@ -153,7 +159,7 @@ async def revoke_onboarding_token(session, url, token):
                     ws,
                     "homeii_revoke_1",
                     "auth",
-                    {"token": token, "device_name": "HOMEii Flow Engine setup"},
+                    {"token": token, "device_name": "Maverick Music Flow Engine setup"},
                 )
                 return await _logout(ws, "homeii_revoke_2")
     except Exception:  # noqa: BLE001 - the caller reports the original setup error
