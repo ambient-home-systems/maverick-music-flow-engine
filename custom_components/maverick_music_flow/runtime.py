@@ -102,6 +102,15 @@ def _parse_utc_datetime(value: Any) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
+def _timer_run_key(timer: dict[str, Any]) -> tuple[str, str, str]:
+    """Identify one scheduled run of a timer: its profile, id and end time."""
+    return (
+        str(timer.get("profile_id") or DEFAULT_PROFILE_ID),
+        str(timer.get("id") or ""),
+        str(timer.get("ends_at") or ""),
+    )
+
+
 def _safe_id_part(value: Any, fallback: str = "item") -> str:
     """Return a storage-safe id fragment."""
     clean = "".join(ch if ch.isalnum() else "_" for ch in str(value or "").strip().lower())
@@ -4991,15 +5000,12 @@ class HomeiiFlowRuntime:
             current = current.replace(tzinfo=UTC)
         current_utc = current.astimezone(UTC)
         results: list[dict[str, Any]] = []
-        remaining: list[dict[str, Any]] = []
-        changed = False
-        for timer in self.timers():
+        executed: set[tuple[str, str, str]] = set()
+        for timer in list(self.timers()):
             if not bool(timer.get("enabled", True)):
-                remaining.append(timer)
                 continue
             ends_at = _parse_utc_datetime(timer.get("ends_at"))
             if ends_at is None or ends_at > current_utc:
-                remaining.append(timer)
                 continue
             try:
                 result = await self.async_execute_timer(timer)
@@ -5014,19 +5020,21 @@ class HomeiiFlowRuntime:
                 }
             self._last_timer_action = result
             results.append(result)
-            changed = True
-        if changed:
-            self._storage["timers"] = remaining
+            executed.add(_timer_run_key(timer))
+        if executed:
+            # Timers may have been set or deleted while the ones above ran, so filter the
+            # current list rather than writing back the snapshot. No await between the read
+            # and the write keeps this atomic. Matching on ends_at keeps a timer re-set under
+            # the same id during execution.
+            self._storage["timers"] = [
+                timer for timer in self.timers() if _timer_run_key(timer) not in executed
+            ]
             await self.async_save()
         return results
 
     async def async_execute_timer(self, timer: dict[str, Any]) -> dict[str, Any]:
         """Share one execution across point-in-time and catch-up runners."""
-        key = (
-            str(timer.get("profile_id") or DEFAULT_PROFILE_ID),
-            str(timer.get("id") or ""),
-            str(timer.get("ends_at") or ""),
-        )
+        key = _timer_run_key(timer)
         task = self._timer_execution_tasks.get(key)
         if task is None:
             # Claim before yielding: activity updates can re-enter this method.
