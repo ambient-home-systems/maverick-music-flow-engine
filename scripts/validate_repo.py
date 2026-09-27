@@ -75,6 +75,7 @@ def main() -> None:
         component / "frontend" / "maverick-music-flow-system-screensaver.js",
         component / "frontend" / "maverick-music-flow-icon.png",
         component / "frontend" / "maverick-music-flow-logo.png",
+        component / "frontend" / "maverick-music-flow-logo-dark.png",
         component / "translations" / "en.json",
         ROOT / "icon.png",
         ROOT / "logo.png",

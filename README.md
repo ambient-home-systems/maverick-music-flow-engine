@@ -1,4 +1,4 @@
-<p align="center"><img src="logo.png" alt="Maverick Music Flow" width="360"></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="custom_components/maverick_music_flow/brand/dark_logo.png"><img src="logo.png" alt="Maverick Music Flow" width="360"></picture></p>
 <h1 align="center">Maverick Music Flow Engine</h1>
 <p align="center"><strong>The connection between your music dashboard and your smart home.</strong><br>Music Assistant state, playback and home automation — through Home Assistant.</p>
 <p align="center"><img alt="Engine 1.0.0" src="https://img.shields.io/badge/Engine-1.0.0-4338ca"><img alt="Home Assistant integration" src="https://img.shields.io/badge/Home_Assistant-custom_integration-41BDF5"><img alt="Beta" src="https://img.shields.io/badge/Status-BETA-e5a445"></p>
@@ -338,7 +338,7 @@ The preceding `1.0.0` source passed 405 pytest tests (plus the 290-test `unittes
 
 ## Identity and credits
 
-Maverick Music Flow uses the same "M" mark in both projects. Root `icon.png`/`logo.png`, integration assets and screensaver assets retain their natural aspect ratio. README images link to local repository assets, so they do not depend on an unpublished tag. HA's integration-brand catalog is a separate publication process; placing icons in this repository alone does not guarantee every HA/HACS surface displays them.
+Maverick Music Flow uses the same "M" mark in both projects. Root `icon.png`/`logo.png`, integration assets and screensaver assets retain their natural aspect ratio. The logo's wordmark is dark, so dark backgrounds use a light-text copy: `brand/dark_logo.png` for Home Assistant's dark theme and `frontend/maverick-music-flow-logo-dark.png` for the system screensaver. README images link to local repository assets, so they do not depend on an unpublished tag. HA's integration-brand catalog is a separate publication process; placing icons in this repository alone does not guarantee every HA/HACS surface displays them.
 
 Built for Home Assistant and Music Assistant, with community feedback shaping the beta. See the [card repository](https://github.com/ambient-home-systems/maverick-music-flow) for interface credits and community translations, including the German contribution by rtreichl.
 
