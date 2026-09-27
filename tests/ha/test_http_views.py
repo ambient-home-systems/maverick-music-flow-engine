@@ -5,6 +5,7 @@ from __future__ import annotations
 from http import HTTPStatus
 
 from conftest import (
+    BEDROOM,
     BEDROOM_ID,
     KITCHEN,
     KITCHEN_ID,
@@ -50,6 +51,16 @@ async def test_command_view_runs_reads(
     response = await client.post(f"{COMMAND_URL}/library/get", json={"media_type": "playlist"})
     assert response.status == HTTPStatus.OK
     assert [item["name"] for item in (await response.json())["items"]] == ["Morning Mix"]
+
+    response = await client.post(f"{COMMAND_URL}/bootstrap/get", json={})
+    assert response.status == HTTPStatus.OK
+    body = await response.json()
+    assert body["bootstrap"] is True
+    assert body["required_connections"]["ok"] is True
+    assert {player["entity_id"] for player in body["player_snapshot"]["players"]} == {
+        KITCHEN,
+        BEDROOM,
+    }
 
 
 async def test_command_view_rejects_bad_requests(
