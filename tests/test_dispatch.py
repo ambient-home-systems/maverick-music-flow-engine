@@ -30,8 +30,15 @@ cls.body = [
         "async_create_tracked_task",
     }
 ]
+timer_run_key = next(
+    n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_timer_run_key"
+)
 module = ast.Module(
-    body=[ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0), cls],
+    body=[
+        ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0),
+        timer_run_key,
+        cls,
+    ],
     type_ignores=[],
 )
 
