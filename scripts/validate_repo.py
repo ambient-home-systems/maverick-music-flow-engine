@@ -100,8 +100,28 @@ def main() -> None:
         raise SystemExit("manifest.json must enable config_flow")
 
     hacs = load_json(ROOT / "hacs.json")
-    if DOMAIN not in hacs.get("domains", []):
-        raise SystemExit("hacs.json must list the integration domain")
+    if not hacs.get("name"):
+        raise SystemExit("hacs.json must set name")
+    # HACS validates hacs.json against a fixed key schema and rejects unknown keys (for
+    # example "domains", which was removed after hacs/action failed CI with "extra keys
+    # not allowed @ data['domains']"). For an integration repository HACS finds the
+    # domain itself from custom_components/, so no such key is needed here.
+    allowed_hacs_keys = {
+        "name",
+        "render_readme",
+        "content_in_root",
+        "zip_release",
+        "filename",
+        "homeassistant",
+        "country",
+        "persistent_directory",
+        "hide_default_branch",
+    }
+    unknown_hacs_keys = sorted(set(hacs) - allowed_hacs_keys)
+    if unknown_hacs_keys:
+        raise SystemExit(
+            f"hacs.json has keys HACS does not recognize: {', '.join(unknown_hacs_keys)}"
+        )
 
     ws_text = (component / "websocket_api.py").read_text(encoding="utf-8")
     missing_commands = sorted(command for command in COMMANDS if command not in ws_text)

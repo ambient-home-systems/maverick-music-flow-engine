@@ -1,7 +1,6 @@
 {
   "name": "HOMEii Flow Engine",
   "render_readme": true,
-  "domains": ["maverick_music_flow"],
   "homeassistant": "2025.1.0"
 }
 
