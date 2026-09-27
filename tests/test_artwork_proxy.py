@@ -176,7 +176,7 @@ def load_views():
             HTTPServiceUnavailable=ServiceUnavailable,
             Request=object,
         ),
-        NOT_LOADED_MESSAGE="HOMEii Flow Engine is not loaded",
+        NOT_LOADED_MESSAGE="Maverick Music Flow Engine is not loaded",
         ArtworkFetcher=PROXY["ArtworkFetcher"],
         ArtworkPayload=PROXY["ArtworkPayload"],
         artwork_fetch_urls=PROXY["artwork_fetch_urls"],
@@ -746,7 +746,7 @@ class ViewTests(IsolatedAsyncioTestCase):
         source = "https://radio.example/logo"
         self.runtime(sources={"tok": source}, cached={source: (PNG, "image/png")})
         response = await self.item_view().get(self.request, "tok")
-        self.assertEqual(response.headers["X-HOMEii-Flow-Artwork-Source"], "memory-cache")
+        self.assertEqual(response.headers["X-Maverick-Flow-Artwork-Source"], "memory-cache")
         self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
         self.request.headers["If-None-Match"] = response.headers["ETag"]
         not_modified = await self.item_view().get(self.request, "tok")
@@ -782,7 +782,7 @@ class ViewTests(IsolatedAsyncioTestCase):
         self.assertEqual(caught.exception.text, "artwork token not found or expired")
         with self.assertRaises(ServiceUnavailable) as caught:
             await self.entity_view().get(self.request, "media_player.kitchen")
-        self.assertEqual(caught.exception.text, "HOMEii Flow Engine is not loaded")
+        self.assertEqual(caught.exception.text, "Maverick Music Flow Engine is not loaded")
         runtime.async_get_queue.assert_not_awaited()
         self.assertEqual(self.trusted.calls + self.strict.calls + runtime.cache_calls, [])
         runtime.active = True

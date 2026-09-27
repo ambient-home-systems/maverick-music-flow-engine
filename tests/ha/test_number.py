@@ -54,7 +54,7 @@ async def test_volume_rule_number_created_updated_removed(
     entity_id = engine_entity_id(hass, loaded_entry, "number", f"volume_rule_max_{KITCHEN}")
     state = hass.states.get(entity_id)
     assert state.state == "50.0"
-    assert state.name == "HOMEii Flow Engine Max volume: Kitchen"
+    assert state.name == "Maverick Music Flow Engine Max volume: Kitchen"
     volume_calls = mock_music_assistant.service_calls["media_player.volume_set"]
     assert volume_calls == []  # The kitchen is at 30%, below the limit.
 

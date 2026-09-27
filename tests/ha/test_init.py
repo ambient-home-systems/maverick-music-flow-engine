@@ -33,8 +33,8 @@ from custom_components.maverick_music_flow.const import (
     PLATFORMS,
 )
 
-STATUS_SENSOR = "sensor.homeii_flow_engine_status"
-CONNECTIONS_OK = "binary_sensor.homeii_flow_engine_required_connections_ok"
+STATUS_SENSOR = "sensor.maverick_music_flow_engine_status"
+CONNECTIONS_OK = "binary_sensor.maverick_music_flow_engine_required_connections_ok"
 
 
 async def test_setup_starts_runtime_and_connects(
@@ -53,7 +53,7 @@ async def test_setup_starts_runtime_and_connects(
 
     device = device_registry.async_get_device(identifiers={(DOMAIN, loaded_entry.entry_id)})
     assert device is not None
-    assert device.manufacturer == "HOMEii"
+    assert device.manufacturer == "Maverick"
     entities = er.async_entries_for_config_entry(entity_registry, loaded_entry.entry_id)
     assert {entity.domain for entity in entities} == set(PLATFORMS)
     assert all(entity.device_id == device.id for entity in entities)
@@ -118,7 +118,7 @@ async def test_unload_stops_all_engine_work(
     engine_states = [
         state
         for state in hass.states.async_all()
-        if state.entity_id.split(".", 1)[1].startswith("homeii_flow_engine")
+        if state.entity_id.split(".", 1)[1].startswith("maverick_music_flow_engine")
     ]
     assert len(engine_states) > 30
     assert {state.state for state in engine_states} == {STATE_UNAVAILABLE}

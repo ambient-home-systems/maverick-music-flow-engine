@@ -68,7 +68,7 @@ ns = dict(
     urlsplit=urlsplit,
     urlunsplit=urlunsplit,
     DOMAIN="maverick_music_flow",
-    NOT_LOADED_MESSAGE="HOMEii Flow Engine is not loaded",
+    NOT_LOADED_MESSAGE="Maverick Music Flow Engine is not loaded",
     WSMsgType=kinds,
     WSCloseCode=close_codes,
     web=web,
@@ -186,7 +186,7 @@ class BridgeTests(IsolatedAsyncioTestCase):
         self.runtime.active = False
         with self.assertRaises(HTTPServiceUnavailable) as caught:
             await self.view.get(request("alice"), "device")
-        self.assertEqual(str(caught.exception), "HOMEii Flow Engine is not loaded")
+        self.assertEqual(str(caught.exception), "Maverick Music Flow Engine is not loaded")
         self.ws_connect.assert_not_awaited()
         self.runtime.async_save.assert_not_awaited()
 

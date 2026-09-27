@@ -149,12 +149,13 @@ class RedactionTests(TestCase):
     def test_query_strings_are_stripped_from_urls_left_unredacted(self) -> None:
         payload = {
             "frontend": {
-                "brand_icon_url": "/maverick_music_flow/homeii-flow-icon.png?v=2",
+                "brand_icon_url": "/maverick_music_flow/maverick-music-flow-icon.png?v=2",
             }
         }
         result = redact_diagnostics(payload)
         self.assertEqual(
-            result["frontend"]["brand_icon_url"], "/maverick_music_flow/homeii-flow-icon.png"
+            result["frontend"]["brand_icon_url"],
+            "/maverick_music_flow/maverick-music-flow-icon.png",
         )
 
 

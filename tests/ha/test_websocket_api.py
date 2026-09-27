@@ -23,7 +23,7 @@ from custom_components.maverick_music_flow.const import DOMAIN, VERSION
 
 ITEM_ARTWORK_PREFIX = f"/api/{DOMAIN}/artwork/item/"
 
-# Capabilities the HOMEii Music Flow card checks before using a feature. Removing or
+# Capabilities the Maverick Music Flow card checks before using a feature. Removing or
 # flipping one of these to False is a breaking change to the card contract (see the
 # working rules in docs/IMPLEMENTATION_PLAN.md on card compatibility), so this list is
 # a deliberate duplicate of the relevant const.CAPABILITIES entries rather than an

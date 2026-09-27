@@ -430,7 +430,7 @@ class FakeHass:
 class Entry:
     def __init__(self, entry_id: str = "entry-1") -> None:
         self.entry_id = entry_id
-        self.title = "HOMEii Flow Engine"
+        self.title = "Maverick Music Flow Engine"
         self.version = 2
         self.data = {"instance_id": "default", "music_assistant_token": "ma-token"}
         self.options = {"music_assistant_url": MA_URL}
