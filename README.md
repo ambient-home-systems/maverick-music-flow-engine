@@ -11,17 +11,48 @@
 > **Upgrading the card from 5.9.3 requires installing this Engine first.** The 6.0 card is not a standalone replacement JavaScript file. Keep 5.9.3 active until the Engine is installed, configured and loading successfully. Back up HA, the dashboard, resource URL and previous files before testing. The Engine can execute schedules, timers and volume rules even when the dashboard is closed.
 
 
-## Install the Engine — start here
+## Installation
 
 **BETA: back up Home Assistant first. Install the Engine before upgrading the card from 5.9.3.**
 
-### 1. Download with HACS
+### 1. Install the Engine
+
+Choose HACS or a manual copy; both end with the same **Add integration** step.
+
+**With HACS:**
 
 [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=ambient-home-systems&repository=maverick-music-flow-engine&category=integration)
 
 HACS must already be installed. This is a **custom repository**, not an official HACS default listing. If the button cannot find it, open **HACS → ⋮ → Custom repositories**, add `https://github.com/ambient-home-systems/maverick-music-flow-engine`, choose **Integration**, and add it. Open Maverick Music Flow Engine, install **1.0.0**, then **restart Home Assistant**. The button opens HACS; it does not silently install anything.
 
-### 2. Add and configure the integration after restarting
+For an existing installation, retain its config entry, update the full component directory through HACS and restart. Do not delete the entry just to change the MA URL or token; the update does not intentionally reset stored schedules or profiles.
+
+**Manually, without HACS:**
+
+1. Back up HA and any existing `custom_components/maverick_music_flow` directory.
+2. Download the zip asset attached to the latest [release](https://github.com/ambient-home-systems/maverick-music-flow-engine/releases), or obtain the exact source commit intended for testing, not an unrelated moving branch.
+3. Copy **the `maverick_music_flow` directory inside `custom_components`** to `/config/custom_components/maverick_music_flow`.
+4. Verify this exact layout:
+
+```text
+/config/custom_components/maverick_music_flow/
+  __init__.py
+  manifest.json
+  config_flow.py
+  runtime.py
+  websocket_api.py
+  services.yaml
+  translations/
+  frontend/
+  ...other files from the package
+```
+
+5. `manifest.json` must be directly inside `maverick_music_flow`. Do not copy a repository ZIP as an integration, copy only one Python file, or create `maverick_music_flow/maverick_music_flow/manifest.json` accidentally.
+6. Run HA's configuration check, then **restart Home Assistant**.
+
+If the integration is not found after either method, confirm the files were installed and HA was restarted.
+
+### 2. Add and configure the integration
 
 [![Add integration](https://my.home-assistant.io/badges/config_flow.svg)](https://my.home-assistant.io/redirect/config_flow/?domain=maverick_music_flow)
 
@@ -31,13 +62,9 @@ Or go to **Settings → Devices & services → Add integration → Maverick Musi
 - **Manual:** create a long-lived token in **Music Assistant → Settings → Profile**, then paste it into the Engine form.
 - Use your actual MA server address, for example `http://YOUR-MA-HOST:8095`. Do not paste the HA sidebar/ingress page URL.
 - Keep **Instance ID** and **Default Profile ID** as `default` for a standard installation. They identify this Engine connection and its default saved profile.
-- Confirm the integration loads before installing the matching card.
+- Fill the [configuration fields](#configuration-fields) and complete setup. Check for setup errors before installing the matching card.
 
-If My Home Assistant opens the wrong server, change its instance URL to your own HA address. If the integration is not found, confirm the files were installed and HA was restarted.
-
-### Manual installation without HACS
-
-Download the zip asset attached to the latest Maverick Music Flow Engine [release](https://github.com/ambient-home-systems/maverick-music-flow-engine/releases), extract it, and copy the complete `custom_components/maverick_music_flow` folder into `/config/custom_components/`. The resulting file must be `/config/custom_components/maverick_music_flow/manifest.json`. Restart HA, then use **Add integration** above. Do not create an extra nested `custom_components` directory.
+If My Home Assistant opens the wrong server, change its instance URL to your own HA address.
 
 ## Artwork lighting and listening insights (local beta candidate)
 
@@ -95,43 +122,6 @@ flowchart LR
 - HA can reach the real MA HTTP(S) API/WebSocket address, including its port. Do not use an HA ingress page as the API URL.
 - At least one working MA player, exposed through the official integration, and the relevant provider/TTS/AI setup for optional features.
 - For development outside HA: Python 3.12+ is declared in `pyproject.toml`; running in HA uses HA's managed Python runtime.
-
-## Installation
-
-### Before a beta is published
-
-Stable release packages are available from GitHub Releases and through this custom HACS repository. Use the exact matching card and Engine versions.
-
-### Manual installation
-
-1. Back up HA and any existing `custom_components/maverick_music_flow` directory.
-2. Obtain the exact Engine beta package/source commit intended for testing, not an unrelated moving branch.
-3. Copy **the `maverick_music_flow` directory inside `custom_components`** to `/config/custom_components/maverick_music_flow`.
-4. Verify this exact layout:
-
-```text
-/config/custom_components/maverick_music_flow/
-  __init__.py
-  manifest.json
-  config_flow.py
-  runtime.py
-  websocket_api.py
-  services.yaml
-  translations/
-  frontend/
-  ...other files from the package
-```
-
-5. `manifest.json` must be directly inside `maverick_music_flow`. Do not copy a repository ZIP as an integration, copy only one Python file, or create `maverick_music_flow/maverick_music_flow/manifest.json` accidentally.
-6. Run HA's configuration check, then **restart Home Assistant**.
-7. Go to **Settings → Devices & services → Add integration → Maverick Music Flow Engine**.
-8. Fill the connection fields below and complete setup. Check for setup errors before installing the 6.0 card.
-
-### HACS installation after public availability is arranged
-
-Add `https://github.com/ambient-home-systems/maverick-music-flow-engine` as a custom **Integration** repository, deliberately select the exact beta, download it and restart HA. Adding it in HACS installs files; it does **not** replace the Add integration/configuration steps. The matching [card repository](https://github.com/ambient-home-systems/maverick-music-flow) is a separate **Dashboard** repository.
-
-For an existing installation, retain its config entry, update the full component directory and restart. Do not delete the entry just to change the MA URL or token. The update does not intentionally reset stored schedules or profiles.
 
 ## Configuration fields
 
