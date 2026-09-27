@@ -363,7 +363,8 @@ class FakeMusicAssistant:
                 self.queue_config[key]["value"] = value
             return None
         if command == "player_queues/play_media":
-            # Start a new queue item, so the Engine's playback verification succeeds.
+            # Start a new queue item (play) or grow the queue (add/next), so the Engine's
+            # playback verification succeeds.
             queue = self.queues.setdefault(
                 str(args.get("queue_id") or ""), {"queue_id": str(args.get("queue_id") or "")}
             )
@@ -375,6 +376,9 @@ class FakeMusicAssistant:
                     "name": str(args.get("media")),
                 }
                 queue["state"] = "playing"
+            elif args.get("option") in ("add", "next"):
+                # Adding grows the queue, which is how the Engine verifies add/next.
+                queue["items"] = int(queue.get("items") or 0) + 1
             return None
         if command in {"players/cmd/play", "players/cmd/pause", "players/cmd/stop"}:
             state = {"play": "playing", "pause": "paused", "stop": "idle"}[

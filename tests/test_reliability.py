@@ -32,6 +32,7 @@ helpers = {
     "_safe_id_part",
     "_utc_iso",
     "_playback_snapshot_changed",
+    "_queue_item_count",
 }
 methods = {
     "_async_validate_media_reference",
@@ -43,6 +44,7 @@ methods = {
     "_player_readiness",
     "async_players_snapshot",
     "async_play_media",
+    "_async_check_play_confirmation",
     "_try_music_queue_command_bridge",
     "normalize_queue_response",
     "_queue_payload_root",
@@ -78,6 +80,16 @@ runtime_class.body = [
 ]
 nodes.append(runtime_class)
 registry = SimpleNamespace(entities={}, async_get=lambda _: None)
+
+
+class PlaybackUnconfirmed(RuntimeError):
+    """Stand-in for HomeiiFlowPlaybackUnconfirmed; carries the play_media result."""
+
+    def __init__(self, message, result):
+        super().__init__(message)
+        self.result = result
+
+
 namespace = {
     "time": time,
     "DEFAULT_PROFILE_ID": "default",
@@ -87,6 +99,9 @@ namespace = {
     "datetime": datetime,
     "UTC": UTC,
     "HomeiiFlowServiceUnavailable": RuntimeError,
+    "HomeiiFlowPlaybackUnconfirmed": PlaybackUnconfirmed,
+    "_PLAY_VERIFY_POLLS": 20,
+    "_PLAY_VERIFY_INTERVAL": 0.4,
     "er": SimpleNamespace(async_get=lambda _: registry),
     "home_assistant_base_url": lambda _hass: "",
     "async_validate_media_reference": runpy.run_path(
@@ -334,22 +349,23 @@ class ReliabilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["items_count"], 900)
         self.assertEqual(result["current_item"]["name"], "playing")
 
-    async def play(self, enqueue, after):
+    async def play(self, enqueue, after, before_items=None):
         self.runtime._ma_players_by_entity["native"] = {
             "available": True,
             "state": "idle",
             "raw_player_id": "native",
         }
+        before = {
+            "queue_id": "native",
+            "state": "playing",
+            "current_item": {"queue_item_id": "old"},
+        }
+        if before_items is not None:
+            before["items"] = before_items
 
         async def command(payload):
             if payload["command"] == "player_queues/get_active_queue":
-                return {
-                    "data": {
-                        "queue_id": "native",
-                        "state": "playing",
-                        "current_item": {"queue_item_id": "old"},
-                    }
-                }
+                return {"data": before}
             if payload["command"] == "player_queues/get":
                 return {"data": after}
             return {"data": None}
@@ -365,27 +381,60 @@ class ReliabilityTests(unittest.IsolatedAsyncioTestCase):
                 }
             )
 
-    async def test_enqueue_does_not_require_playback_change(self):
+    def sent(self, command):
+        return [
+            call.args[0]
+            for call in self.runtime.async_music_assistant_command.call_args_list
+            if call.args[0]["command"] == command
+        ]
+
+    async def test_enqueue_without_queue_count_skips_verification(self):
         result = await self.play("add", {})
         self.assertTrue(result["ok"])
         self.assertFalse(result["verified"])
-        self.assertNotIn(
-            "player_queues/get",
-            [
-                call.args[0]["command"]
-                for call in self.runtime.async_music_assistant_command.call_args_list
-            ],
+        self.assertEqual(result["verification"], "skipped")
+        self.assertEqual(self.sent("player_queues/get"), [])
+        self.assertEqual(len(self.sent("player_queues/play_media")), 1)
+
+    async def test_enqueue_verifies_by_queue_count(self):
+        result = await self.play("next", {"state": "playing", "items": 4}, before_items=3)
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["verification"], "verified")
+        self.assertEqual(len(self.sent("player_queues/play_media")), 1)
+
+    async def test_enqueue_unchanged_count_is_unconfirmed_without_resending(self):
+        result = await self.play("add", {"state": "playing", "items": 3}, before_items=3)
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["verification"], "unconfirmed")
+        self.assertEqual(len(self.sent("player_queues/play_media")), 1)
+
+    async def test_replace_next_skips_verification(self):
+        result = await self.play("replace_next", {}, before_items=3)
+        self.assertEqual(result["verification"], "skipped")
+        self.assertEqual(self.sent("player_queues/get"), [])
+
+    async def test_unrequested_verification_is_reported(self):
+        self.runtime._ma_players_by_entity["native"] = {"available": True, "raw_player_id": "n"}
+        self.runtime.async_music_assistant_command = AsyncMock(return_value={"data": None})
+        result = await self.runtime.async_play_media(
+            {"player": "native", "media_id": "library://track/new", "enqueue": "add"}
         )
+        self.assertEqual(result["verification"], "not_requested")
 
     async def test_native_playback_verifies_new_queue_item(self):
         result = await self.play(
             "play", {"state": "playing", "current_item": {"queue_item_id": "new"}}
         )
         self.assertTrue(result["verified"])
+        self.assertEqual(result["verification"], "verified")
 
     async def test_old_playing_track_does_not_confirm_new_request(self):
-        with self.assertRaisesRegex(RuntimeError, "did not confirm"):
+        with self.assertRaisesRegex(PlaybackUnconfirmed, "did not confirm") as raised:
             await self.play("play", {"state": "playing", "current_item": {"queue_item_id": "old"}})
+        # The error carries the result, so a caller can keep checking without replaying.
+        self.assertEqual(raised.exception.result["verification"], "unconfirmed")
+        self.assertEqual(raised.exception.result["queue_id"], "native")
         self.runtime._bump_snapshot_revision.assert_called_once()
         mutations = [
             call
