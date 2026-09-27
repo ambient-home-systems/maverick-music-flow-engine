@@ -2,7 +2,7 @@
 
 Running a due timer awaits a blocking media_stop and an activity save. Timers set or
 deleted during those awaits must not be lost or brought back when the executed timer is
-removed.
+removed, whether the minute runner or the timer's own switch ran it.
 """
 
 from __future__ import annotations
@@ -13,9 +13,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from conftest import BEDROOM, KITCHEN, engine_runtime
+from conftest import BEDROOM, KITCHEN, engine_entity_id, engine_runtime
+from freezegun.api import FrozenDateTimeFactory
+from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant, ServiceCall
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
 from custom_components.maverick_music_flow.const import DOMAIN
 
@@ -112,3 +114,49 @@ async def test_timer_deleted_during_execution_stays_deleted(
     await hass.async_block_till_done()
 
     assert _timer_ids(hass) == []
+
+
+def _ends_at(hass: HomeAssistant) -> datetime:
+    return datetime.fromisoformat(engine_runtime(hass).timers("default")[0]["ends_at"])
+
+
+async def test_timer_switch_keeps_timer_reset_during_its_run(
+    hass: HomeAssistant,
+    loaded_entry: MockConfigEntry,
+    blocking_stop: BlockingStop,
+    monkeypatch: pytest.MonkeyPatch,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The timer's switch removes only the run it executed, then runs the re-set timer."""
+
+    async def no_minute_runner(_now: datetime | None = None) -> list[dict[str, Any]]:
+        return []
+
+    # Only the switch's own point-in-time timer runs timers in this test.
+    monkeypatch.setattr(engine_runtime(hass), "async_run_due_timers", no_minute_runner)
+    await _set_timer(hass, id="nap", player=KITCHEN, minutes=5)
+    await hass.async_block_till_done()
+    entity_id = engine_entity_id(hass, loaded_entry, "switch", "timer_nap")
+    assert entity_id is not None
+
+    freezer.move_to(_ends_at(hass) + timedelta(seconds=1))
+    async_fire_time_changed(hass)
+    await asyncio.wait_for(blocking_stop.started.wait(), 5)
+    await _set_timer(hass, id="nap", player=KITCHEN, minutes=60)
+    new_ends_at = _ends_at(hass)
+    blocking_stop.release.set()
+    await hass.async_block_till_done()
+
+    timers = engine_runtime(hass).timers("default")
+    assert [(timer["id"], timer["ends_at"]) for timer in timers] == [
+        ("nap", new_ends_at.isoformat())
+    ]
+    assert hass.states.get(entity_id).state == STATE_ON
+
+    freezer.move_to(new_ends_at + timedelta(seconds=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    assert blocking_stop.calls == [KITCHEN, KITCHEN]
+    assert engine_runtime(hass).timers("default") == []
+    assert hass.states.get(entity_id) is None

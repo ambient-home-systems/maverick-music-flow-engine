@@ -4961,8 +4961,14 @@ class HomeiiFlowRuntime:
         )
         return timer
 
-    async def async_delete_timer(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Delete a one-shot timer by id or player."""
+    async def async_delete_timer(
+        self, payload: dict[str, Any], *, ends_at: str | None = None
+    ) -> dict[str, Any]:
+        """Delete a one-shot timer by id or player.
+
+        With ends_at, delete it only if it still ends then: a runner removing the run it
+        executed must keep a timer re-set under the same id meanwhile.
+        """
         profile_id = str(payload.get("profile_id") or DEFAULT_PROFILE_ID)
         timer_id = str(payload.get("id") or payload.get("timer_id") or "").strip()
         player = str(payload.get("player") or payload.get("entity_id") or "").strip()
@@ -4978,6 +4984,7 @@ class HomeiiFlowRuntime:
                     (timer_id and timer.get("id") == timer_id)
                     or (not timer_id and timer.get("player") == player)
                 )
+                and (ends_at is None or str(timer.get("ends_at") or "") == ends_at)
             )
         ]
         removed = before - len(self.timers())

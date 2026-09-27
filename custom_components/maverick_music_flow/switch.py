@@ -506,6 +506,8 @@ class HomeiiFlowTimerSwitch(SwitchEntity):
         self._timer_unsub: Callable[[], None] | None = None
         self._last_result: dict[str, Any] | None = None
         self._last_triggered_at = ""
+        # End time of the run this switch last fired; a re-set timer is a new run.
+        self._fired_ends_at: str | None = None
         self._removed = False
         self._attr_unique_id = f"{entry.entry_id}_timer_{timer_id}"
 
@@ -661,12 +663,15 @@ class HomeiiFlowTimerSwitch(SwitchEntity):
 
     async def _async_fire(self, due_at: datetime, trigger: str) -> None:
         """Execute and remove the one-shot timer."""
-        if self._last_triggered_at:
-            return
         timer = self._timer()
         if timer is None:
-            self.remove_from_registry()
+            if not self._last_triggered_at:
+                self.remove_from_registry()
             return
+        ends_at = str(timer.get("ends_at") or "")
+        if ends_at == self._fired_ends_at:
+            return
+        self._fired_ends_at = ends_at
         self._last_triggered_at = _utc_iso()
         try:
             result = await self._runtime.async_execute_timer(timer)
@@ -685,10 +690,12 @@ class HomeiiFlowTimerSwitch(SwitchEntity):
         result["runner"] = "homeii_timer_switch"
         self._last_result = result
         self._runtime._last_timer_action = result
+        # Remove only the run that executed; a timer re-set meanwhile stays and is rescheduled.
         await self._runtime.async_delete_timer(
-            {"profile_id": self._profile_id, "timer_id": self._timer_id}
+            {"profile_id": self._profile_id, "timer_id": self._timer_id}, ends_at=ends_at
         )
-        self.remove_from_registry()
+        if self._timer() is None:
+            self.remove_from_registry()
 
 
 class HomeiiFlowVolumeRuleSwitch(SwitchEntity):
