@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.typing import UNDEFINED
 
 from . import async_get_runtime
 from .const import CONF_INSTANCE_ID, CONF_PROFILE_ID, DOMAIN, NAME, SIGNAL_ENGINE_UPDATED, VERSION
@@ -337,7 +338,8 @@ class HomeiiFlowSensor(SensorEntity):
         self._entry = entry
         self.entity_description = description
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
-        self._attr_name = description.name
+        if description.name is not UNDEFINED:
+            self._attr_name = description.name
         self._attr_force_update = description.force_update
 
     async def async_added_to_hass(self) -> None:

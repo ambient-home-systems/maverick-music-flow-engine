@@ -275,7 +275,7 @@ def command_name(command_type: str) -> str:
     return clean[len(COMMAND_PREFIX) :] if clean.startswith(COMMAND_PREFIX) else clean
 
 
-def music_assistant_command_access(command: str) -> str:
+def music_assistant_command_access(command: Any) -> str:
     """Return the access level of a Music Assistant command, or '' when it is not allowed."""
     clean = _clean(command)
     if clean not in MUSIC_ASSISTANT_COMMAND_ALLOWLIST:

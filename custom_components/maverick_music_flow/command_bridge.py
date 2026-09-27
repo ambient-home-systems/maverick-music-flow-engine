@@ -114,7 +114,10 @@ def strip_internal_keys(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-BASE_SCHEMA = {
+# Voluptuous schema fields, in the key type Home Assistant's websocket_command accepts.
+SchemaFields = dict[str | vol.Marker, Any]
+
+BASE_SCHEMA: SchemaFields = {
     vol.Optional("card_id"): str,
     vol.Optional("card_version"): str,
     vol.Optional(CONF_INSTANCE_ID): str,
@@ -123,12 +126,12 @@ BASE_SCHEMA = {
     vol.Optional("source"): str,
 }
 
-MA_COMMAND_FIELDS = {
+MA_COMMAND_FIELDS: SchemaFields = {
     vol.Required("command"): str,
     vol.Optional("args", default=dict): dict,
 }
 
-QUEUE_GET_FIELDS = {
+QUEUE_GET_FIELDS: SchemaFields = {
     vol.Optional("entity_id"): str,
     vol.Optional("selected_player"): str,
     vol.Optional("queue_id"): str,
@@ -139,7 +142,7 @@ QUEUE_GET_FIELDS = {
 # No "type" alias for media_type here: merged into a WebSocket schema it would replace
 # the command's own "type" key, and Home Assistant would register the command under the
 # wrong name. The HTTP view accepts "type" through _HTTP_BASE_SCHEMA and drops it.
-LIBRARY_GET_FIELDS = {
+LIBRARY_GET_FIELDS: SchemaFields = {
     vol.Optional("media_type"): str,
     vol.Optional("query"): str,
     vol.Optional("search"): str,
@@ -153,13 +156,13 @@ LIBRARY_GET_FIELDS = {
     vol.Optional("compact", default=False): bool,
 }
 
-FAVORITES_GET_FIELDS = {
+FAVORITES_GET_FIELDS: SchemaFields = {
     vol.Optional("media_types"): [str],
     vol.Optional("limit"): int,
     vol.Optional("refresh", default=False): bool,
 }
 
-FAVORITES_SET_FIELDS = {
+FAVORITES_SET_FIELDS: SchemaFields = {
     vol.Required("favorite"): bool,
     vol.Optional("uri"): str,
     vol.Optional("media_type"): str,
@@ -170,7 +173,7 @@ FAVORITES_SET_FIELDS = {
     vol.Optional("remove_args"): dict,
 }
 
-SEARCH_GET_FIELDS = {
+SEARCH_GET_FIELDS: SchemaFields = {
     vol.Optional("query"): str,
     vol.Optional("search"): str,
     vol.Optional("search_query"): str,
@@ -184,7 +187,7 @@ SEARCH_GET_FIELDS = {
 
 # The card posts the same message over HTTP as over WebSocket, including "type". The
 # view drops "type" after validation, as the WebSocket handlers do.
-_HTTP_BASE_SCHEMA = {vol.Optional("type"): str, **BASE_SCHEMA}
+_HTTP_BASE_SCHEMA: SchemaFields = {vol.Optional("type"): str, **BASE_SCHEMA}
 
 HTTP_COMMAND_SCHEMAS: dict[str, vol.Schema] = {
     "get_context": vol.Schema(_HTTP_BASE_SCHEMA),

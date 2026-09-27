@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import functools
 import hashlib
 import logging
 import secrets
@@ -569,10 +570,10 @@ def _time_window_active(now: datetime, start_time: str, end_time: str) -> bool:
     if start is None and end is None:
         return True
     current = _minutes(now.hour, now.minute)
-    if start is not None and end is None:
+    if start is None:
+        return end is None or current <= _minutes(*end)
+    if end is None:
         return current >= _minutes(*start)
-    if start is None and end is not None:
-        return current <= _minutes(*end)
     start_minutes = _minutes(*start)
     end_minutes = _minutes(*end)
     if start_minutes <= end_minutes:
@@ -1518,12 +1519,15 @@ class HomeiiFlowRuntime:
         """Return a card-ready media item with stable ids, text and artwork."""
         if not isinstance(item, dict):
             return None
-        media_item = item.get("media_item") if isinstance(item.get("media_item"), dict) else {}
+        raw_media_item = item.get("media_item")
+        media_item: dict[str, Any] = raw_media_item if isinstance(raw_media_item, dict) else {}
         core = media_item or item
-        album = (
-            core.get("album")
-            if isinstance(core.get("album"), dict)
-            else (item.get("album") if isinstance(item.get("album"), dict) else {})
+        core_album = core.get("album")
+        item_album = item.get("album")
+        album: dict[str, Any] = (
+            core_album
+            if isinstance(core_album, dict)
+            else (item_album if isinstance(item_album, dict) else {})
         )
         album_text = _clean_string(
             core.get("album") if not isinstance(core.get("album"), (dict, list)) else ""
@@ -1759,14 +1763,12 @@ class HomeiiFlowRuntime:
                 or age > 24 * 60 * 60
             ):
                 continue
-            key = tuple(key_parts)
+            library_key = tuple(key_parts)
+            artwork_sources = entry.get("artwork_sources")
             restored = self._restore_persistent_cache_result(
-                result,
-                entry.get("artwork_sources")
-                if isinstance(entry.get("artwork_sources"), dict)
-                else {},
+                result, artwork_sources if isinstance(artwork_sources, dict) else {}
             )
-            self._library_cache[key] = {
+            self._library_cache[library_key] = {
                 "fresh_until": 0.0
                 if entry.get("invalidated")
                 else now_mono + max(0.0, 10 * 60 - age),
@@ -1790,11 +1792,9 @@ class HomeiiFlowRuntime:
             age = now_epoch - stored_at
             if not key or not isinstance(result, dict) or age < 0 or age > 24 * 60 * 60:
                 continue
+            artwork_sources = entry.get("artwork_sources")
             restored = self._restore_persistent_cache_result(
-                result,
-                entry.get("artwork_sources")
-                if isinstance(entry.get("artwork_sources"), dict)
-                else {},
+                result, artwork_sources if isinstance(artwork_sources, dict) else {}
             )
             self._media_command_cache[key] = {
                 "fresh_until": 0.0
@@ -1835,7 +1835,7 @@ class HomeiiFlowRuntime:
         )
         entries: list[dict[str, Any]] = []
         total_items = 0
-        for key, cached in candidates:
+        for library_key, cached in candidates:
             result = cached.get("result")
             if not isinstance(result, dict):
                 continue
@@ -1845,7 +1845,7 @@ class HomeiiFlowRuntime:
             compact, artwork_sources = self._persistent_cache_result(result)
             entries.append(
                 {
-                    "key": list(key),
+                    "key": list(library_key),
                     "stored_at": float(cached.get("stored_at") or time.time()),
                     "invalidated": bool(cached.get("invalidated")),
                     "result": compact,
@@ -2655,7 +2655,7 @@ class HomeiiFlowRuntime:
             ma_message = "Music Assistant is loaded, but its API returned no enabled players."
         else:
             ma_message = f"Music Assistant is connected with {direct_player_count} API player(s)."
-        connections = {
+        connections: dict[str, dict[str, Any]] = {
             "music_assistant": {
                 "ok": ma_ok,
                 "status": ma_status,
@@ -2934,7 +2934,7 @@ class HomeiiFlowRuntime:
         states_by_entity = {state.entity_id: state for state in media_states}
         states_by_queue_id: dict[str, Any] = {}
         for candidate in media_states:
-            candidate_attrs = candidate.attributes or {}
+            candidate_attrs: dict[str, Any] = candidate.attributes or {}
             for queue_id in (
                 candidate_attrs.get("active_queue"),
                 candidate_attrs.get("queue_id"),
@@ -2946,9 +2946,8 @@ class HomeiiFlowRuntime:
                     states_by_queue_id.setdefault(clean_queue_id, candidate)
 
         def artwork_values(attributes: dict[str, Any]) -> list[Any]:
-            metadata = (
-                attributes.get("metadata") if isinstance(attributes.get("metadata"), dict) else {}
-            )
+            raw_metadata = attributes.get("metadata")
+            metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
             return [
                 attributes.get("entity_picture"),
                 attributes.get("media_image_url"),
@@ -2962,7 +2961,7 @@ class HomeiiFlowRuntime:
 
         players = []
         for state in media_states:
-            attrs = state.attributes or {}
+            attrs: dict[str, Any] = state.attributes or {}
             registry_entry = (
                 entity_registry.async_get(state.entity_id) if entity_registry is not None else None
             )
@@ -2985,9 +2984,11 @@ class HomeiiFlowRuntime:
                 )
             queue_attrs = queue_state.attributes if queue_state is not None else {}
             state_value = state.state
-            if str(state_value or "").lower() not in {"playing", "buffering"} and str(
-                queue_state.state if queue_state else ""
-            ).lower() in {"playing", "buffering"}:
+            if (
+                queue_state
+                and str(state_value or "").lower() not in {"playing", "buffering"}
+                and str(queue_state.state).lower() in {"playing", "buffering"}
+            ):
                 state_value = queue_state.state
             artwork_candidates: list[str] = []
             homeii_artwork_url = ""
@@ -3128,7 +3129,7 @@ class HomeiiFlowRuntime:
         state = self.hass.states.get(clean)
         if state is None:
             return clean
-        attrs = state.attributes or {}
+        attrs: dict[str, Any] = state.attributes or {}
         return _clean_string(
             _first_non_empty(
                 attrs.get("mass_player_id"),
@@ -3153,7 +3154,8 @@ class HomeiiFlowRuntime:
             ):
                 return entry.entity_id
         for player in self.media_players_snapshot(include_artwork=False):
-            attrs = player.get("attributes") if isinstance(player.get("attributes"), dict) else {}
+            raw_attrs = player.get("attributes")
+            attrs = raw_attrs if isinstance(raw_attrs, dict) else {}
             identifiers = {
                 _clean_string(value)
                 for value in (
@@ -3366,7 +3368,8 @@ class HomeiiFlowRuntime:
     @staticmethod
     def is_music_assistant_player(player: dict[str, Any]) -> bool:
         """Return whether a media player has Music Assistant markers."""
-        attributes = player.get("attributes") if isinstance(player.get("attributes"), dict) else {}
+        raw_attributes = player.get("attributes")
+        attributes = raw_attributes if isinstance(raw_attributes, dict) else {}
         identity = " ".join(
             str(player.get(key) or "")
             for key in (
@@ -4051,7 +4054,7 @@ class HomeiiFlowRuntime:
             }
         elif command in {"volume", "volume_set"}:
             api_command = "players/cmd/volume_set"
-            volume = (
+            volume: Any = (
                 payload.get("volume_level")
                 if payload.get("volume_level") is not None
                 else payload.get("volume")
@@ -4077,7 +4080,7 @@ class HomeiiFlowRuntime:
             }
         elif command in {"seek", "media_seek"}:
             api_command = "player_queues/seek"
-            position = (
+            position: Any = (
                 payload.get("seek_position")
                 if payload.get("seek_position") is not None
                 else payload.get("position")
@@ -5469,9 +5472,7 @@ class HomeiiFlowRuntime:
                         )
                         self._media_command_inflight[cache_key] = task
                         task.add_done_callback(
-                            lambda completed, key=cache_key: self._finish_media_command_refresh(
-                                key, completed
-                            )
+                            functools.partial(self._finish_media_command_refresh, cache_key)
                         )
                     return copy.deepcopy(cached["result"])
             inflight = self._media_command_inflight.get(cache_key)
@@ -6120,7 +6121,7 @@ class HomeiiFlowRuntime:
         if depth > 5 or not isinstance(value, dict):
             return 0
         for key in ("items", "items_count", "total", "total_items", "count", "queue_length"):
-            candidate = value.get(key)
+            candidate: Any = value.get(key)
             if isinstance(candidate, list):
                 continue
             try:
@@ -6546,10 +6547,10 @@ class HomeiiFlowRuntime:
     async def async_set_favorite(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Add or remove a Music Assistant favorite through one Engine contract."""
         favorite = bool(payload.get("favorite", True))
-        entry = payload.get("entry") if isinstance(payload.get("entry"), dict) else {}
-        remove_args = (
-            payload.get("remove_args") if isinstance(payload.get("remove_args"), dict) else {}
-        )
+        raw_entry = payload.get("entry")
+        entry = raw_entry if isinstance(raw_entry, dict) else {}
+        raw_remove_args = payload.get("remove_args")
+        remove_args = raw_remove_args if isinstance(raw_remove_args, dict) else {}
         uri = _clean_string(payload.get("uri") or entry.get("uri") or entry.get("media_content_id"))
         media_type = _clean_string(
             payload.get("media_type") or entry.get("media_type") or entry.get("type") or "track"
@@ -6573,7 +6574,7 @@ class HomeiiFlowRuntime:
 
         if favorite:
             best_item = uri or item_id
-            attempts = [
+            attempts: list[dict[str, Any]] = [
                 {"item": best_item},
                 {"item": item_id or best_item},
                 {
@@ -6721,7 +6722,7 @@ class HomeiiFlowRuntime:
             if items:
                 output_key = (
                     output_groups.get(fallback_type)
-                    or output_groups.get(items[0].get("media_type"))
+                    or output_groups.get(_clean_string(items[0].get("media_type")))
                     or group_key
                 )
                 groups.setdefault(output_key, []).extend(items)
