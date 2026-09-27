@@ -6,7 +6,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity, BinarySensorEntityDescription
+from homeassistant.components.binary_sensor import (
+    BinarySensorDeviceClass,
+    BinarySensorEntity,
+    BinarySensorEntityDescription,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
@@ -15,7 +19,16 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import async_get_runtime
-from .const import CONF_INSTANCE_ID, CONF_PROFILE_ID, DEFAULT_INSTANCE_ID, DEFAULT_PROFILE_ID, DOMAIN, NAME, SIGNAL_ENGINE_UPDATED, VERSION
+from .const import (
+    CONF_INSTANCE_ID,
+    CONF_PROFILE_ID,
+    DEFAULT_INSTANCE_ID,
+    DEFAULT_PROFILE_ID,
+    DOMAIN,
+    NAME,
+    SIGNAL_ENGINE_UPDATED,
+    VERSION,
+)
 from .runtime import HomeiiFlowRuntime
 
 
@@ -29,7 +42,9 @@ class HomeiiFlowBinarySensorDescription(BinarySensorEntityDescription):
 
 def _profile_id(entry: ConfigEntry) -> str:
     """Return the active profile id for a config entry."""
-    return str(entry.options.get(CONF_PROFILE_ID) or entry.data.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID)
+    return str(
+        entry.options.get(CONF_PROFILE_ID) or entry.data.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID
+    )
 
 
 def _connection_ok(runtime: HomeiiFlowRuntime, key: str) -> bool:
@@ -115,7 +130,9 @@ BINARY_SENSORS: tuple[HomeiiFlowBinarySensorDescription, ...] = (
         key="volume_policy_active",
         name="Volume policy active",
         icon="mdi:volume-lock",
-        is_on_fn=lambda runtime, entry: len(runtime.active_volume_rule_summaries(_profile_id(entry))) > 0,
+        is_on_fn=lambda runtime, entry: (
+            len(runtime.active_volume_rule_summaries(_profile_id(entry))) > 0
+        ),
         attrs_fn=lambda runtime, entry: {
             "active_volume_rules": runtime.active_volume_rule_summaries(_profile_id(entry)),
             "volume_rules": runtime.volume_rule_summaries(_profile_id(entry)),
@@ -132,7 +149,9 @@ async def async_setup_entry(
 ) -> None:
     """Set up HOMEii Flow Engine binary sensors."""
     runtime = async_get_runtime(hass)
-    async_add_entities(HomeiiFlowBinarySensor(runtime, entry, description) for description in BINARY_SENSORS)
+    async_add_entities(
+        HomeiiFlowBinarySensor(runtime, entry, description) for description in BINARY_SENSORS
+    )
 
 
 class HomeiiFlowBinarySensor(BinarySensorEntity):

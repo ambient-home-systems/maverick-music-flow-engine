@@ -151,7 +151,11 @@ def _fake_async_redact_data(data: Any, to_redact: Any) -> Any:
     """Stand-in for homeassistant.components.diagnostics.async_redact_data."""
     if isinstance(data, dict):
         return {
-            key: ("**REDACTED**" if key in to_redact and value else _fake_async_redact_data(value, to_redact))
+            key: (
+                "**REDACTED**"
+                if key in to_redact and value
+                else _fake_async_redact_data(value, to_redact)
+            )
             for key, value in data.items()
         }
     if isinstance(data, list):
@@ -187,7 +191,9 @@ _STUBS = {
     ),
     "aiohttp.abc": _module("aiohttp.abc", AbstractResolver=object),
     "homeassistant": _module("homeassistant"),
-    "homeassistant.const": _module("homeassistant.const", EVENT_HOMEASSISTANT_CLOSE="homeassistant_close"),
+    "homeassistant.const": _module(
+        "homeassistant.const", EVENT_HOMEASSISTANT_CLOSE="homeassistant_close"
+    ),
     "homeassistant.core": _module(
         "homeassistant.core", HomeAssistant=object, ServiceCall=object, callback=_passthrough
     ),
@@ -228,7 +234,9 @@ _STUBS = {
     "homeassistant.helpers": _module("homeassistant.helpers"),
     "homeassistant.helpers.config_validation": _module(
         "homeassistant.helpers.config_validation",
-        config_entry_only_config_schema=lambda domain: SCHEMA_CALLS.append(domain) or "config-entry-only",
+        config_entry_only_config_schema=lambda domain: (
+            SCHEMA_CALLS.append(domain) or "config-entry-only"
+        ),
     ),
     "homeassistant.helpers.aiohttp_client": _module(
         "homeassistant.helpers.aiohttp_client", async_get_clientsession=lambda hass: hass.session
@@ -254,7 +262,9 @@ _STUBS = {
     ),
     "homeassistant.helpers.storage": _module("homeassistant.helpers.storage", Store=Store),
     "homeassistant.helpers.network": _module(
-        "homeassistant.helpers.network", NoURLAvailableError=Exception, get_url=lambda hass, **kw: ""
+        "homeassistant.helpers.network",
+        NoURLAvailableError=Exception,
+        get_url=lambda hass, **kw: "",
     ),
     "homeassistant.util": _module("homeassistant.util"),
     "homeassistant.util.dt": _module(
@@ -329,7 +339,9 @@ class Services:
     def async_register(self, domain, service, handler, schema=None):
         self.registered[(domain, service)] = handler
 
-    async def async_call(self, domain, service, data=None, blocking=False, target=None, return_response=False):
+    async def async_call(
+        self, domain, service, data=None, blocking=False, target=None, return_response=False
+    ):
         self.calls.append((domain, service, dict(data or {})))
 
 
@@ -435,11 +447,35 @@ def stored_engine_data() -> dict[str, Any]:
     past = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
     return {
         "maverick_music_flow.storage": {
-            "volume_rules": [{"profile_id": "default", "player": KITCHEN, "max_volume": 30, "enabled": True}],
-            "timers": [{"profile_id": "default", "id": "sleep", "player": KITCHEN, "action": "stop", "ends_at": past}],
-            "schedules": [{"profile_id": "default", "id": "wake", "player": KITCHEN, "time": "07:00", "enabled": True}],
+            "volume_rules": [
+                {"profile_id": "default", "player": KITCHEN, "max_volume": 30, "enabled": True}
+            ],
+            "timers": [
+                {
+                    "profile_id": "default",
+                    "id": "sleep",
+                    "player": KITCHEN,
+                    "action": "stop",
+                    "ends_at": past,
+                }
+            ],
+            "schedules": [
+                {
+                    "profile_id": "default",
+                    "id": "wake",
+                    "player": KITCHEN,
+                    "time": "07:00",
+                    "enabled": True,
+                }
+            ],
             "artwork_lighting": {
-                KITCHEN: {"lights": ["light.desk"], "enabled": True, "brightness": 35, "transition": 3, "cooldown": 8}
+                KITCHEN: {
+                    "lights": ["light.desk"],
+                    "enabled": True,
+                    "brightness": 35,
+                    "transition": 3,
+                    "cooldown": 8,
+                }
             },
         }
     }
@@ -510,7 +546,9 @@ class SetupTests(LifecycleTestCase):
         self.assertEqual(self.hass.saves, {})
         self.assertIn((DOMAIN, "set_volume_rule"), self.hass.services.registered)
         self.assertIn((DOMAIN, "set_queue_settings"), self.hass.services.registered)
-        call = SimpleNamespace(context=SimpleNamespace(user_id=None), data={"player": KITCHEN, "max_volume": 20})
+        call = SimpleNamespace(
+            context=SimpleNamespace(user_id=None), data={"player": KITCHEN, "max_volume": 20}
+        )
         for service in ("set_volume_rule", "set_queue_settings"):
             with self.subTest(service=service):
                 with self.assertRaises(ServiceValidationError) as caught:
@@ -548,7 +586,9 @@ class UnloadTests(LifecycleTestCase):
         self.hass.player_volume = 0.9
         HANDLES.fire("interval:30", datetime.now(UTC))
         await self.settle()
-        self.assertEqual(len(self.service_calls("volume_set")), 2)  # control: a tick acts while loaded
+        self.assertEqual(
+            len(self.service_calls("volume_set")), 2
+        )  # control: a tick acts while loaded
 
         await self.unload_entry(entry)
 
@@ -578,18 +618,38 @@ class UnloadTests(LifecycleTestCase):
         schedule_runs = runtime.async_execute_schedule.await_count
         # A due timer, a due schedule and a player above its volume limit.
         runtime._storage["timers"].append(
-            {"profile_id": "default", "id": "late", "player": KITCHEN, "ends_at": datetime.now(UTC).isoformat()}
+            {
+                "profile_id": "default",
+                "id": "late",
+                "player": KITCHEN,
+                "ends_at": datetime.now(UTC).isoformat(),
+            }
         )
         now = datetime.now(UTC)
         runtime._storage["schedules"].append(
-            {"profile_id": "default", "id": "now", "player": KITCHEN, "time": now.strftime("%H:%M"), "enabled": True}
+            {
+                "profile_id": "default",
+                "id": "now",
+                "player": KITCHEN,
+                "time": now.strftime("%H:%M"),
+                "enabled": True,
+            }
         )
         self.hass.player_volume = 1.0
-        for kind in ("interval:30", "time_change", "call_later", "point_in_time", "interval:10", "state_change"):
+        for kind in (
+            "interval:30",
+            "time_change",
+            "call_later",
+            "point_in_time",
+            "interval:10",
+            "state_change",
+        ):
             self.assertEqual(HANDLES.fire(kind, now), 0, kind)
         result = await runtime.async_tick_orchestration(now, trigger="manual")
         await self.settle()
-        self.assertEqual((result["schedules"], result["timers"], result["volume_rules"]), ([], [], []))
+        self.assertEqual(
+            (result["schedules"], result["timers"], result["volume_rules"]), ([], [], [])
+        )
         self.assertEqual(self.hass.services.calls, calls_before)
         self.assertEqual(runtime.async_execute_schedule.await_count, schedule_runs)
         with self.assertRaises(RUNTIME_MODULE.HomeiiFlowServiceUnavailable):
@@ -606,7 +666,9 @@ class UnloadTests(LifecycleTestCase):
 
         runtime._player_snapshot_for_entity = lambda entity_id: None
         runtime._try_music_queue_command_bridge = hang
-        caller = asyncio.create_task(runtime.async_get_queue({"entity_id": KITCHEN, "queue_id": "q"}))
+        caller = asyncio.create_task(
+            runtime.async_get_queue({"entity_id": KITCHEN, "queue_id": "q"})
+        )
         await started.wait()
         (inflight,) = runtime._queue_inflight.values()
         self.assertIn(inflight, runtime._background_tasks)
@@ -644,7 +706,10 @@ class UnloadTests(LifecycleTestCase):
         entry = await self.setup_entry()
         runtime = self.runtime()
         runtime._library_cache[("playlist", "", 60, False, "", 0)] = {
-            "fresh_until": 0.0, "stale_until": 0.0, "stored_at": 1.0, "result": {"items": []},
+            "fresh_until": 0.0,
+            "stale_until": 0.0,
+            "stored_at": 1.0,
+            "result": {"items": []},
         }
         runtime._schedule_media_cache_save()  # debounced two seconds
         runtime._storage["activity"] = [{"kind": "unsaved"}]  # changed by a task that was cancelled
@@ -655,7 +720,9 @@ class UnloadTests(LifecycleTestCase):
         self.assertEqual(HANDLES.active("call_later"), [])
         self.assertEqual(self.hass.saves["maverick_music_flow.media_cache"], media_saves + 1)
         self.assertEqual(len(self.hass.stored["maverick_music_flow.media_cache"]["entries"]), 1)
-        self.assertEqual(self.hass.stored["maverick_music_flow.storage"]["activity"], [{"kind": "unsaved"}])
+        self.assertEqual(
+            self.hass.stored["maverick_music_flow.storage"]["activity"], [{"kind": "unsaved"}]
+        )
 
     async def test_views_and_websocket_commands_refuse_after_unload(self) -> None:
         entry = await self.setup_entry()
@@ -672,7 +739,9 @@ class UnloadTests(LifecycleTestCase):
             await views["HomeiiFlowSendspinView"].get(request, "ma_homeii_device")
         self.assertEqual(self.hass.session.connects, 1)  # only the MA event stream, before unload
         connection = SimpleNamespace(
-            user=SimpleNamespace(is_admin=True), send_result=AsyncMock(), errors=[],
+            user=SimpleNamespace(is_admin=True),
+            send_result=AsyncMock(),
+            errors=[],
             send_error=lambda msg_id, code, message: connection.errors.append(code),
         )
         handler = next(h for h in WS_COMMANDS if h.__name__ == "websocket_get_context")
@@ -747,7 +816,6 @@ class ReloadTests(LifecycleTestCase):
         self.assertEqual(HANDLES.active(), [])
 
 
-
 class MigrationTests(IsolatedAsyncioTestCase):
     def version_1_entry(self, data_token, options_token) -> Entry:
         entry = Entry()
@@ -788,7 +856,9 @@ class MigrationTests(IsolatedAsyncioTestCase):
         await ENGINE.async_migrate_entry(FakeHass(), entry)
         runtime = SimpleNamespace(register_entry=MagicMock())
         ENGINE._register_entry(runtime, entry)
-        self.assertEqual(runtime.register_entry.call_args.kwargs["music_assistant_token"], "replacement-token")
+        self.assertEqual(
+            runtime.register_entry.call_args.kwargs["music_assistant_token"], "replacement-token"
+        )
 
     async def test_newer_entry_version_is_refused(self):
         entry = self.version_1_entry("token", None)

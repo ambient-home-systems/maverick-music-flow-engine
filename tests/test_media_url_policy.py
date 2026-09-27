@@ -456,7 +456,9 @@ class OptionWiringTests(TestCase):
         self.assertIn("allow_local_media_urls=allow_local_media_urls", init)
         # Every action reports a refused URL as a validation error: the shared action
         # wrapper converts every ValueError, which MediaUrlNotAllowed subclasses.
-        self.assertEqual(init.count("except ValueError as error:  # Includes MediaUrlNotAllowed."), 1)
+        self.assertEqual(
+            init.count("except ValueError as error:  # Includes MediaUrlNotAllowed."), 1
+        )
         self.assertIn("await _async_run_action(handler, call)", init)
         flow = (COMPONENT / "config_flow.py").read_text(encoding="utf-8")
         self.assertIn("updated[CONF_ALLOW_LOCAL_MEDIA_URLS] = bool(", flow)

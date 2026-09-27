@@ -50,7 +50,11 @@ def _fake_async_redact_data(data: Any, to_redact: Any) -> Any:
     """Stand-in for homeassistant.components.diagnostics.async_redact_data."""
     if isinstance(data, dict):
         return {
-            key: ("**REDACTED**" if key in to_redact and value else _fake_async_redact_data(value, to_redact))
+            key: (
+                "**REDACTED**"
+                if key in to_redact and value
+                else _fake_async_redact_data(value, to_redact)
+            )
             for key, value in data.items()
         }
     if isinstance(data, list):
@@ -128,10 +132,13 @@ def handler_commands() -> dict[str, str]:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         for decorator in node.decorator_list:
-            if not (isinstance(decorator, ast.Call) and ast.unparse(decorator.func).endswith("websocket_command")):
+            if not (
+                isinstance(decorator, ast.Call)
+                and ast.unparse(decorator.func).endswith("websocket_command")
+            ):
                 continue
             schema = decorator.args[0]
-            for key, value in zip(schema.keys, schema.values):
+            for key, value in zip(schema.keys, schema.values, strict=True):
                 if (
                     isinstance(key, ast.Call)
                     and ast.unparse(key.func).endswith("Required")
@@ -267,7 +274,9 @@ def registered_commands() -> set[str]:
     return set(re.findall(r'vol\.Required\("type"\): "(maverick_music_flow/[^"]+)"', source))
 
 
-async def run(command: str, msg: dict[str, Any], user: FakeUser, runtime: FakeRuntime | None = None):
+async def run(
+    command: str, msg: dict[str, Any], user: FakeUser, runtime: FakeRuntime | None = None
+):
     """Validate msg like Home Assistant would, then run the registered handler."""
     runtime = runtime or FakeRuntime()
     handler = HANDLERS[PREFIX + command]
@@ -346,7 +355,10 @@ ADMIN_MESSAGES: dict[str, dict[str, Any]] = {
 }
 ADMIN_MESSAGES_2: list[tuple[str, dict[str, Any]]] = [
     ("playlists", {"action": "delete", "playlist_id": "p1"}),
-    ("ma/command", {"command": "music/playlists/add_playlist_tracks", "args": {"db_playlist_id": "1"}}),
+    (
+        "ma/command",
+        {"command": "music/playlists/add_playlist_tracks", "args": {"db_playlist_id": "1"}},
+    ),
 ]
 
 
@@ -398,7 +410,9 @@ class PolicyTableTests(TestCase):
                 if command.endswith("/library_items") or command in {"music/search", "players/all"}:
                     self.assertEqual(level, READ)
         self.assertEqual(AUTH.MUSIC_ASSISTANT_COMMAND_ACCESS["music/library/add_item"], ADMIN)
-        self.assertEqual(AUTH.MUSIC_ASSISTANT_COMMAND_ACCESS["music/playlists/add_playlist_tracks"], ADMIN)
+        self.assertEqual(
+            AUTH.MUSIC_ASSISTANT_COMMAND_ACCESS["music/playlists/add_playlist_tracks"], ADMIN
+        )
         self.assertEqual(AUTH.music_assistant_command_access("config/core/save"), "")
         self.assertEqual(AUTH.music_assistant_command_access("music/start_sync"), "")
 
@@ -429,7 +443,9 @@ class PolicyTableTests(TestCase):
 
     def test_targets_follow_the_runtime_key_precedence(self):
         targets = AUTH.payload_targets
-        self.assertEqual(targets("player/command", {"entity_id": "a", "selected_player": "b"}), ["a"])
+        self.assertEqual(
+            targets("player/command", {"entity_id": "a", "selected_player": "b"}), ["a"]
+        )
         self.assertEqual(targets("playback/play_media", {"selected_player": "b"}), ["b"])
         self.assertEqual(targets("player/command", {"player": "", "entity_id": " c "}), ["c"])
         self.assertEqual(
@@ -444,7 +460,9 @@ class PolicyTableTests(TestCase):
         self.assertEqual(targets("playlists", {"action": "list", "selected_player": "a"}), [])
         self.assertEqual(targets("schedules/set", {"entity_id": "a"}), ["a"])
         self.assertEqual(targets("set_timer", {"player": "a"}), ["a"])
-        self.assertEqual(targets("transfer_queue", {"source_player": "a", "target_player": "b"}), ["a", "b"])
+        self.assertEqual(
+            targets("transfer_queue", {"source_player": "a", "target_player": "b"}), ["a", "b"]
+        )
         self.assertEqual(targets("favorites/set", {"player": "a"}), [])
         self.assertEqual(targets("get_context", {"player": "a"}), [])
         self.assertEqual(
@@ -473,15 +491,26 @@ class PolicyTableTests(TestCase):
             {"id": "s1", "profile_id": "other", "player": BEDROOM},
         ]
         timers = [{"id": "t1", "player": BEDROOM}]
-        rules = [{"player": KITCHEN}, {"player": BEDROOM, "profile_id": "default"}, {"player": "x", "profile_id": "other"}]
+        rules = [
+            {"player": KITCHEN},
+            {"player": BEDROOM, "profile_id": "default"},
+            {"player": "x", "profile_id": "other"},
+        ]
         stored = AUTH.stored_targets
-        self.assertEqual(stored("schedules/delete", {"schedule_id": "s1"}, schedules=schedules), [KITCHEN])
-        self.assertEqual(stored("run_schedule", {"id": "s1", "profile_id": "other"}, schedules=schedules), [BEDROOM])
+        self.assertEqual(
+            stored("schedules/delete", {"schedule_id": "s1"}, schedules=schedules), [KITCHEN]
+        )
+        self.assertEqual(
+            stored("run_schedule", {"id": "s1", "profile_id": "other"}, schedules=schedules),
+            [BEDROOM],
+        )
         self.assertEqual(stored("schedules/run", {}, schedules=schedules), [])
         self.assertEqual(stored("timers/delete", {"timer_id": "t1"}, timers=timers), [BEDROOM])
         self.assertEqual(stored("delete_timer", {"id": "missing"}, timers=timers), [])
         self.assertEqual(stored("volume_rules/clear", {}, volume_rules=rules), [KITCHEN, BEDROOM])
-        self.assertEqual(stored("clear_volume_rules", {"profile_id": "other"}, volume_rules=rules), ["x"])
+        self.assertEqual(
+            stored("clear_volume_rules", {"profile_id": "other"}, volume_rules=rules), ["x"]
+        )
         self.assertEqual(stored("volume_rules/set", {"player": KITCHEN}, volume_rules=rules), [])
 
 
@@ -504,11 +533,15 @@ class AccessDenialTests(TestCase):
         self.assertEqual(denial.entity_id, BEDROOM)
         self.assertIn(BEDROOM, denial.reason)
         self.assertIsNone(self.denial(CONTROL, targets=[]))
-        self.assertEqual(self.denial(CONTROL, targets=[], require_target=True).reason, AUTH.TARGET_REQUIRED)
+        self.assertEqual(
+            self.denial(CONTROL, targets=[], require_target=True).reason, AUTH.TARGET_REQUIRED
+        )
         self.assertIsNone(self.denial(CONTROL, targets=[], require_target=True, is_admin=True))
 
     def test_manage_is_admin_only_unless_the_option_is_on(self):
-        self.assertEqual(self.denial(MANAGE, targets=[KITCHEN]).reason, AUTH.MANAGEMENT_ADMIN_REQUIRED)
+        self.assertEqual(
+            self.denial(MANAGE, targets=[KITCHEN]).reason, AUTH.MANAGEMENT_ADMIN_REQUIRED
+        )
         self.assertIsNone(self.denial(MANAGE, targets=[KITCHEN], management_allowed=True))
         self.assertEqual(
             self.denial(MANAGE, targets=[BEDROOM], management_allowed=True).entity_id, BEDROOM
@@ -520,9 +553,7 @@ class AccessDenialTests(TestCase):
             for is_admin in (True, False):
                 with self.subTest(level=level, is_admin=is_admin):
                     # Nobody may run it, so the reason must not ask for admin access.
-                    self.assertEqual(
-                        self.denial(level, is_admin=is_admin).reason, AUTH.NOT_ALLOWED
-                    )
+                    self.assertEqual(self.denial(level, is_admin=is_admin).reason, AUTH.NOT_ALLOWED)
 
 
 class WebsocketReadTests(IsolatedAsyncioTestCase):
@@ -565,7 +596,11 @@ class WebsocketConfigurationWriteTests(IsolatedAsyncioTestCase):
         for command, msg in self.all_writes():
             with self.subTest(command=command, msg=msg):
                 runtime = FakeRuntime()
-                runtime._storage = {"saved_playlists": {"default": {"p1": {"id": "p1", "name": "x", "uris": ["a://b"]}}}}
+                runtime._storage = {
+                    "saved_playlists": {
+                        "default": {"p1": {"id": "p1", "name": "x", "uris": ["a://b"]}}
+                    }
+                }
                 connection, runtime = await run(command, msg, FakeUser(is_admin=True), runtime)
                 kind, value = connection.outcome
                 self.assertNotEqual((kind, value), ("error", ERR_UNAUTHORIZED))
@@ -584,7 +619,11 @@ class WebsocketPlaybackControlTests(IsolatedAsyncioTestCase):
         for command, msg in CONTROL_MESSAGES.items():
             with self.subTest(command=command):
                 runtime = FakeRuntime()
-                runtime._storage = {"saved_playlists": {"default": {"p1": {"id": "p1", "name": "x", "uris": ["a://b"]}}}}
+                runtime._storage = {
+                    "saved_playlists": {
+                        "default": {"p1": {"id": "p1", "name": "x", "uris": ["a://b"]}}
+                    }
+                }
                 user = FakeUser(allowed={KITCHEN})
                 connection, runtime = await run(command, msg, user, runtime)
                 kind, value = connection.outcome
@@ -599,7 +638,10 @@ class WebsocketPlaybackControlTests(IsolatedAsyncioTestCase):
         cases = [
             ("player/command", {"player": BEDROOM, "command": "play"}),
             ("playback/play_media", {"entity_id": BEDROOM, "media_id": "library://track/1"}),
-            ("queue/action", {"selected_player": BEDROOM, "action": "remove", "queue_item_id": "1"}),
+            (
+                "queue/action",
+                {"selected_player": BEDROOM, "action": "remove", "queue_item_id": "1"},
+            ),
             ("queue/transfer", {"source_player": KITCHEN, "target_player": BEDROOM}),
             ("queue/transfer", {"source_player": BEDROOM, "target_player": KITCHEN}),
             ("group/apply", {"owner": KITCHEN, "members": [BEDROOM]}),
@@ -608,10 +650,28 @@ class WebsocketPlaybackControlTests(IsolatedAsyncioTestCase):
             ("announce", {"message": "Dinner", "player": KITCHEN, "players": [BEDROOM]}),
             ("playlists", {"action": "play", "playlist_id": "p1", "selected_player": BEDROOM}),
             ("ma/command", {"command": "players/cmd/play", "args": {"player_id": "ma-bedroom"}}),
-            ("ma/command", {"command": "player_queues/clear", "args": {"queue_id": "queue-bedroom"}}),
-            ("ma/command", {"command": "players/cmd/set_members", "args": {"target_player": "ma-kitchen", "player_ids_to_add": ["ma-bedroom"]}}),
-            ("ma/command", {"command": "player_queues/transfer", "args": {"source_queue_id": "ma-kitchen", "target_queue_id": "queue-bedroom"}}),
-            ("ma/command", {"command": "players/cmd/play", "args": {"player_id": "unknown-player"}}),
+            (
+                "ma/command",
+                {"command": "player_queues/clear", "args": {"queue_id": "queue-bedroom"}},
+            ),
+            (
+                "ma/command",
+                {
+                    "command": "players/cmd/set_members",
+                    "args": {"target_player": "ma-kitchen", "player_ids_to_add": ["ma-bedroom"]},
+                },
+            ),
+            (
+                "ma/command",
+                {
+                    "command": "player_queues/transfer",
+                    "args": {"source_queue_id": "ma-kitchen", "target_queue_id": "queue-bedroom"},
+                },
+            ),
+            (
+                "ma/command",
+                {"command": "players/cmd/play", "args": {"player_id": "unknown-player"}},
+            ),
         ]
         for command, msg in cases:
             with self.subTest(command=command, msg=msg):
@@ -733,7 +793,9 @@ class FakeRequest(dict):
 def load_command_view(runtime):
     source = COMPONENT / "__init__.py"
     tree = ast.parse(source.read_text(encoding="utf-8"))
-    nodes = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "HomeiiFlowCommandView"]
+    nodes = [
+        n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "HomeiiFlowCommandView"
+    ]
     bridge = importlib.import_module(f"{PACKAGE}.command_bridge")
     ns: dict[str, Any] = {
         "vol": vol,
@@ -762,7 +824,11 @@ def load_command_view(runtime):
         "requires_target": AUTH.requires_target,
     }
     exec(
-        compile(ast.fix_missing_locations(ast.Module(body=[FUTURE, *nodes], type_ignores=[])), str(source), "exec"),
+        compile(
+            ast.fix_missing_locations(ast.Module(body=[FUTURE, *nodes], type_ignores=[])),
+            str(source),
+            "exec",
+        ),
         ns,
     )
     return ns["HomeiiFlowCommandView"](hass=None), ns["web"].HTTPForbidden
@@ -778,7 +844,14 @@ class CommandViewAuthorizationTests(IsolatedAsyncioTestCase):
 
     async def test_reads_work_for_read_only_users(self):
         user = FakeUser(allowed=set())
-        for command in ("get_context", "bootstrap/get", "queue/get", "library/get", "favorites/get", "search/get"):
+        for command in (
+            "get_context",
+            "bootstrap/get",
+            "queue/get",
+            "library/get",
+            "favorites/get",
+            "search/get",
+        ):
             with self.subTest(command=command):
                 result = await self.post(command, {}, user)
                 self.assertIn("json", result)
@@ -787,7 +860,9 @@ class CommandViewAuthorizationTests(IsolatedAsyncioTestCase):
         self.assertEqual(user.checked, [])
 
     async def test_favorites_set_is_open_to_any_authenticated_user(self):
-        result = await self.post("favorites/set", {"favorite": True, "uri": "x"}, FakeUser(allowed=set()))
+        result = await self.post(
+            "favorites/set", {"favorite": True, "uri": "x"}, FakeUser(allowed=set())
+        )
         self.assertIn("json", result)
 
     async def test_control_commands_check_entity_permissions(self):
@@ -843,7 +918,11 @@ def load_service_guard(runtime):
         "_async_require_loaded",
         "_async_run_action",
     }
-    nodes = [n for n in tree.body if isinstance(n, ast.AsyncFunctionDef | ast.FunctionDef) and n.name in wanted]
+    nodes = [
+        n
+        for n in tree.body
+        if isinstance(n, ast.AsyncFunctionDef | ast.FunctionDef) and n.name in wanted
+    ]
     ns: dict[str, Any] = {
         "Any": Any,
         "vol": vol,
@@ -867,7 +946,11 @@ def load_service_guard(runtime):
         "stored_targets": AUTH.stored_targets,
     }
     exec(
-        compile(ast.fix_missing_locations(ast.Module(body=[FUTURE, *nodes], type_ignores=[])), str(source), "exec"),
+        compile(
+            ast.fix_missing_locations(ast.Module(body=[FUTURE, *nodes], type_ignores=[])),
+            str(source),
+            "exec",
+        ),
         ns,
     )
     return ns["_async_check_service_access"], ns["_async_register_guarded_service"]
@@ -876,11 +959,15 @@ def load_service_guard(runtime):
 class ServiceGuardTests(IsolatedAsyncioTestCase):
     def setUp(self):
         self.runtime = FakeRuntime()
-        self.runtime.stored["schedules"] = [{"id": "s1", "profile_id": "default", "player": BEDROOM}]
+        self.runtime.stored["schedules"] = [
+            {"id": "s1", "profile_id": "default", "player": BEDROOM}
+        ]
         self.check, self.register = load_service_guard(self.runtime)
         self.users: dict[str, FakeUser] = {}
         self.hass = SimpleNamespace(
-            auth=SimpleNamespace(async_get_user=AsyncMock(side_effect=lambda user_id: self.users.get(user_id))),
+            auth=SimpleNamespace(
+                async_get_user=AsyncMock(side_effect=lambda user_id: self.users.get(user_id))
+            ),
             services=SimpleNamespace(has_service=lambda *_a: False, async_register=Mock()),
             data={"maverick_music_flow": {"runtime": self.runtime}},
         )
@@ -905,9 +992,20 @@ class ServiceGuardTests(IsolatedAsyncioTestCase):
 
     async def test_non_admin_users_are_refused_management_and_configuration_services(self):
         user = self.user()
-        for service in ("set_schedule", "delete_schedule", "run_schedule", "set_timer", "delete_timer",
-                        "set_volume_rule", "delete_volume_rule", "clear_volume_rules",
-                        "set_screensaver", "run_orchestration", "set_interface_preferences", "set_queue_settings"):
+        for service in (
+            "set_schedule",
+            "delete_schedule",
+            "run_schedule",
+            "set_timer",
+            "delete_timer",
+            "set_volume_rule",
+            "delete_volume_rule",
+            "clear_volume_rules",
+            "set_screensaver",
+            "run_orchestration",
+            "set_interface_preferences",
+            "set_queue_settings",
+        ):
             with self.subTest(service=service):
                 with self.assertRaises(FakeUnauthorized) as caught:
                     await self.check(self.hass, service, self.call(user.id, player=KITCHEN))
@@ -923,16 +1021,24 @@ class ServiceGuardTests(IsolatedAsyncioTestCase):
         await self.check(self.hass, "announce", self.call(user.id, message="hi", players=[KITCHEN]))
         await self.check(self.hass, "show_screensaver", self.call(user.id))
         with self.assertRaises(FakeUnauthorized) as caught:
-            await self.check(self.hass, "player_command", self.call(user.id, player=BEDROOM, command="play"))
+            await self.check(
+                self.hass, "player_command", self.call(user.id, player=BEDROOM, command="play")
+            )
         self.assertEqual(caught.exception.kwargs["entity_id"], BEDROOM)
         self.assertEqual(caught.exception.kwargs["permission"], POLICY_CONTROL)
         with self.assertRaises(FakeUnauthorized):
-            await self.check(self.hass, "transfer_queue", self.call(user.id, source_player=KITCHEN, target_player=BEDROOM))
+            await self.check(
+                self.hass,
+                "transfer_queue",
+                self.call(user.id, source_player=KITCHEN, target_player=BEDROOM),
+            )
 
     async def test_option_lets_non_admins_manage_players_they_control(self):
         self.runtime.management_allowed = True
         user = self.user(allowed={KITCHEN})
-        await self.check(self.hass, "set_schedule", self.call(user.id, player=KITCHEN, time="07:00"))
+        await self.check(
+            self.hass, "set_schedule", self.call(user.id, player=KITCHEN, time="07:00")
+        )
         with self.assertRaises(FakeUnauthorized) as caught:
             await self.check(self.hass, "run_schedule", self.call(user.id, id="s1"))
         self.assertEqual(caught.exception.kwargs["entity_id"], BEDROOM)
@@ -947,7 +1053,10 @@ class ServiceGuardTests(IsolatedAsyncioTestCase):
     async def test_guarded_registration_runs_the_check_before_the_handler(self):
         handler = AsyncMock()
         self.register(self.hass, "play_media", handler, schema="schema")
-        name, args, kwargs = self.hass.services.async_register.call_args_list[0][0][0], self.hass.services.async_register.call_args.args, self.hass.services.async_register.call_args.kwargs
+        args, kwargs = (
+            self.hass.services.async_register.call_args.args,
+            self.hass.services.async_register.call_args.kwargs,
+        )
         self.assertEqual(args[:2], ("maverick_music_flow", "play_media"))
         self.assertEqual(kwargs, {"schema": "schema"})
         guarded = args[2]
@@ -985,7 +1094,8 @@ class ServiceGuardTests(IsolatedAsyncioTestCase):
     def test_queue_settings_action_checks_the_entry_is_loaded(self):
         source = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
         handler = next(
-            node for node in ast.walk(ast.parse(source))
+            node
+            for node in ast.walk(ast.parse(source))
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "set_queue_settings"
         )
         self.assertEqual(ast.unparse(handler.body[0]), "_async_require_loaded(hass)")
@@ -1009,11 +1119,23 @@ class NotLoadedWebSocketTests(IsolatedAsyncioTestCase):
 def load_runtime_helpers():
     source = COMPONENT / "runtime.py"
     tree = ast.parse(source.read_text(encoding="utf-8"))
-    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "HomeiiFlowRuntime")
+    cls = next(
+        n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "HomeiiFlowRuntime"
+    )
     entry = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "EngineEntry")
     cls.decorator_list = []
-    wanted = {"control_entity_id", "non_admin_management_allowed", "_matching_entry", "register_entry", "unregister_entry"}
-    cls.body = [n for n in cls.body if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef) and n.name in wanted]
+    wanted = {
+        "control_entity_id",
+        "non_admin_management_allowed",
+        "_matching_entry",
+        "register_entry",
+        "unregister_entry",
+    }
+    cls.body = [
+        n
+        for n in cls.body
+        if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef) and n.name in wanted
+    ]
     ns: dict[str, Any] = {
         "Any": Any,
         "_clean_string": lambda value: str(value or "").strip(),
@@ -1025,7 +1147,11 @@ def load_runtime_helpers():
         "_utc_iso": lambda: "now",
     }
     exec(
-        compile(ast.fix_missing_locations(ast.Module(body=[FUTURE, entry, cls], type_ignores=[])), str(source), "exec"),
+        compile(
+            ast.fix_missing_locations(ast.Module(body=[FUTURE, entry, cls], type_ignores=[])),
+            str(source),
+            "exec",
+        ),
         ns,
     )
     return ns["HomeiiFlowRuntime"], ns["EngineEntry"]
@@ -1036,10 +1162,21 @@ class RuntimeHelperTests(TestCase):
         Runtime, Entry = load_runtime_helpers()
         runtime = Runtime()
         runtime._entries = {}
-        runtime._ma_players_by_id = {"ma-kitchen": {"entity_id": KITCHEN, "raw_player_id": "ma-kitchen"}}
+        runtime._ma_players_by_id = {
+            "ma-kitchen": {"entity_id": KITCHEN, "raw_player_id": "ma-kitchen"}
+        }
         runtime._ma_players_by_entity = {
-            KITCHEN: {"entity_id": KITCHEN, "raw_player_id": "ma-kitchen", "active_queue": "queue-kitchen", "mass_player_id": "ma-kitchen"},
-            BEDROOM: {"entity_id": BEDROOM, "raw_player_id": "ma-bedroom", "active_queue": "queue-kitchen"},
+            KITCHEN: {
+                "entity_id": KITCHEN,
+                "raw_player_id": "ma-kitchen",
+                "active_queue": "queue-kitchen",
+                "mass_player_id": "ma-kitchen",
+            },
+            BEDROOM: {
+                "entity_id": BEDROOM,
+                "raw_player_id": "ma-bedroom",
+                "active_queue": "queue-kitchen",
+            },
         }
         runtime._ha_entity_for_ma_player = lambda raw: f"media_player.homeii_{raw['player_id']}"
         runtime._refresh_music_assistant_connection = Mock()
@@ -1062,10 +1199,19 @@ class RuntimeHelperTests(TestCase):
     def test_non_admin_management_option_follows_the_matching_entry(self):
         runtime, Entry = self.runtime()
         self.assertFalse(runtime.non_admin_management_allowed())
-        runtime.register_entry("one", instance_id="main", profile_id="default", title="t", enable_experimental=False)
+        runtime.register_entry(
+            "one", instance_id="main", profile_id="default", title="t", enable_experimental=False
+        )
         self.assertFalse(runtime.non_admin_management_allowed())
         self.assertFalse(runtime.non_admin_management_allowed("main"))
-        runtime.register_entry("two", instance_id="kids", profile_id="default", title="t", enable_experimental=False, allow_non_admin_management=True)
+        runtime.register_entry(
+            "two",
+            instance_id="kids",
+            profile_id="default",
+            title="t",
+            enable_experimental=False,
+            allow_non_admin_management=True,
+        )
         self.assertTrue(runtime.non_admin_management_allowed("kids"))
         self.assertFalse(runtime.non_admin_management_allowed("main"))
         self.assertFalse(runtime.non_admin_management_allowed())
@@ -1078,21 +1224,27 @@ class WiringTests(TestCase):
         config_flow = (COMPONENT / "config_flow.py").read_text(encoding="utf-8")
         tree = ast.parse(config_flow)
         general = next(
-            n for cls in tree.body if isinstance(cls, ast.ClassDef) and cls.name == "HomeiiFlowOptionsFlow"
-            for n in cls.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "async_step_general"
+            n
+            for cls in tree.body
+            if isinstance(cls, ast.ClassDef) and cls.name == "HomeiiFlowOptionsFlow"
+            for n in cls.body
+            if isinstance(n, ast.AsyncFunctionDef) and n.name == "async_step_general"
         )
         self.assertIn("CONF_ALLOW_NON_ADMIN_MANAGEMENT", ast.unparse(general))
         init = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
         self.assertIn("allow_non_admin_management=allow_non_admin_management", init)
         self.assertIn("entry.options.get(CONF_ALLOW_NON_ADMIN_MANAGEMENT, False)", init)
-        self.assertIn("async_register_admin_service(hass, DOMAIN, SERVICE_SET_QUEUE_SETTINGS", init)
+        self.assertIn("async_register_admin_service(", init)
+        self.assertIn("SERVICE_SET_QUEUE_SETTINGS", init)
         self.assertNotIn("hass.services.async_register(\n            DOMAIN,", init)
         const = (COMPONENT / "const.py").read_text(encoding="utf-8")
         self.assertIn('CONF_ALLOW_NON_ADMIN_MANAGEMENT = "allow_non_admin_management"', const)
         for name in ("strings.json", "translations/en.json"):
             with self.subTest(file=name):
                 text = (COMPONENT / name).read_text(encoding="utf-8")
-                self.assertIn("Allow non-admin users to manage schedules, timers and volume rules", text)
+                self.assertIn(
+                    "Allow non-admin users to manage schedules, timers and volume rules", text
+                )
 
     def test_readme_documents_the_permission_model(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

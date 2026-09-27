@@ -18,3 +18,59 @@ jobs:
       - run: python -B scripts/validate_repo.py
       - run: python -m compileall -q custom_components/maverick_music_flow
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install ruff
+      - run: ruff check .
+      - run: ruff format --check .
+
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 is the floor Home Assistant itself requires (and what pyproject.toml's
+        # requires-python declares); 3.13 is the version current Home Assistant releases
+        # ship and test on.
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -r requirements_test.txt
+      - run: python -m pytest -q
+
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  # Advisory only: the codebase has no prior type-checking history and voluptuous's
+  # schema-building style produces a lot of noise mypy cannot see through without a
+  # dedicated plugin. Track findings without blocking merges until that debt is paid
+  # down deliberately.
+  mypy:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -r requirements_test.txt mypy
+      - run: mypy custom_components/maverick_music_flow --ignore-missing-imports

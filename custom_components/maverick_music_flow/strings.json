@@ -4,7 +4,7 @@
     "step": {
       "manual": {
         "title": "Connect with an MA API token",
-        "description": "Connect HOMEii Music Flow 6 to Music Assistant.\n\n1. Open Music Assistant → Settings → Profile → Long-lived access tokens. Create a token named HOMEii Flow Engine and copy it. This must be a Music Assistant token, not a Home Assistant token or Spotify API key.\n2. Enter the direct MA server URL below (usually port 8095), not your HA dashboard or ingress URL.\n3. Paste the token and submit. The connection is checked before saving.\n4. Once the Engine is loaded, add or upgrade the HOMEii Music Flow card.\n\n[Open the illustrated MA token guide](https://www.music-assistant.io/settings/profile/). The guide is documentation; open your own MA installation to create the token.\n\nFor a normal installation, leave both identifiers as default.",
+        "description": "Connect HOMEii Music Flow 6 to Music Assistant.\n\n1. Open Music Assistant → Settings → Profile → Long-lived access tokens. Create a token named HOMEii Flow Engine and copy it. This must be a Music Assistant token, not a Home Assistant token or Spotify API key.\n2. Enter the direct MA server URL below (usually port 8095), not your HA dashboard or ingress URL.\n3. Paste the token and submit. The connection is checked before saving.\n4. Once the Engine is loaded, add or upgrade the HOMEii Music Flow card.\n\nAn illustrated guide to creating the token is in Music Assistant's own settings documentation; open your own MA installation to create the token.\n\nFor a normal installation, leave both identifiers as default.",
         "data": {
           "name": "Name",
           "instance_id": "Instance ID",

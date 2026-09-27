@@ -100,8 +100,28 @@ def main() -> None:
         raise SystemExit("manifest.json must enable config_flow")
 
     hacs = load_json(ROOT / "hacs.json")
-    if DOMAIN not in hacs.get("domains", []):
-        raise SystemExit("hacs.json must list the integration domain")
+    if not hacs.get("name"):
+        raise SystemExit("hacs.json must set name")
+    # HACS validates hacs.json against a fixed key schema and rejects unknown keys (for
+    # example "domains", which was removed after hacs/action failed CI with "extra keys
+    # not allowed @ data['domains']"). For an integration repository HACS finds the
+    # domain itself from custom_components/, so no such key is needed here.
+    allowed_hacs_keys = {
+        "name",
+        "render_readme",
+        "content_in_root",
+        "zip_release",
+        "filename",
+        "homeassistant",
+        "country",
+        "persistent_directory",
+        "hide_default_branch",
+    }
+    unknown_hacs_keys = sorted(set(hacs) - allowed_hacs_keys)
+    if unknown_hacs_keys:
+        raise SystemExit(
+            f"hacs.json has keys HACS does not recognize: {', '.join(unknown_hacs_keys)}"
+        )
 
     ws_text = (component / "websocket_api.py").read_text(encoding="utf-8")
     missing_commands = sorted(command for command in COMMANDS if command not in ws_text)
@@ -112,51 +132,35 @@ def main() -> None:
     runtime_text = (component / "runtime.py").read_text(encoding="utf-8")
     if f'VERSION = "{manifest["version"]}"' not in const_text:
         raise SystemExit("const.py and manifest.json versions must match")
+
+    # These are bans on specific legacy code paths that were removed on purpose (they were
+    # unreliable or incompatible with Music Assistant 2.10), not markers that lock in one
+    # implementation of a still-required feature, so a string check is appropriate here.
     forbidden_runtime_paths = {
-        "singular radio library command": '"radio": ["radio"]',
         "Home Assistant library fallback": 'async_call_service_response("music_assistant", "get_library"',
         "Home Assistant queue fallback": 'async_call_service_response("music_assistant", "get_queue"',
         "legacy mass_queue fallback": '"domain": "mass_queue"',
-        "schedule media_play fallback": 'fallback_action',
+        "schedule media_play fallback": "fallback_action",
     }
     for label, marker in forbidden_runtime_paths.items():
         if marker in runtime_text:
             raise SystemExit(f"Forbidden HOMEii Flow 6 runtime path remains: {label}")
-    required_performance_contract = {
-        "persistent media detail capability": '"persistent_media_detail_cache": True',
-        "stable artwork capability": '"stable_artwork_urls": True',
-        "artwork ETag capability": '"artwork_etag": True',
-        "compatible shelf capability": '"compatible_library_shelves": True',
-        "compact library capability": '"compact_library_responses": True',
-        "revisioned snapshot capability": '"revisioned_snapshots": True',
-        "active source capability": '"active_source_contract": True',
-        "favorite mutation capability": '"favorite_mutation": True',
-        "Music Assistant 2.10 capability": '"music_assistant_2_10": True',
-        "Music Assistant schema 63 capability": '"music_assistant_schema_63": True',
-        "Music Assistant WebSocket command capability": '"music_assistant_websocket_commands": True',
-        "Music Assistant radio library path": '"radio": ["radios"]',
-        "direct catalog capability": '"direct_library_catalog": True',
-        "direct player capability": '"direct_player_catalog": True',
-        "full queue capability": '"full_queue_snapshots": True',
-        "queue autoplay capability": '"queue_autoplay": True',
-        "detail request coalescing": "_media_command_inflight",
-        "queue request coalescing": "_queue_inflight",
-        "detail stale-while-revalidate cache": "_media_command_cache",
-        "deterministic artwork tokens": "hashlib.blake2s",
-        "compatible larger shelf reuse": "_library_cache_entry",
-        "compact library responses": "_library_response",
-        "snapshot epoch": "_snapshot_epoch",
-        "stale response ordering": "_snapshot_meta",
-        "server info handshake": "_async_music_assistant_server_info",
-        "required contract probes": "_async_music_assistant_contract_probe",
-        "native player identity map": "_ma_players_by_entity",
-        "preferred API endpoint": "_ma_preferred_base_url",
-        "provider discovery cache": "_provider_ids_cache",
-    }
-    for label, marker in required_performance_contract.items():
-        source = const_text if "capability" in label else runtime_text
-        if marker not in source:
-            raise SystemExit(f"Missing 0.7.17 state/performance contract: {label}")
+
+    # Behavior that used to be enforced here by grepping for private attribute names and
+    # capability-dict literals (for example "hashlib.blake2s" or "_queue_inflight") is
+    # covered by real tests instead, since a string match only proves the text is present
+    # somewhere in the file, not that the feature works:
+    #   - the card-facing capability contract: tests/ha/test_websocket_api.py
+    #     (test_get_context, REQUIRED_CAPABILITIES)
+    #   - deterministic, unguessable artwork tokens: tests/test_artwork_proxy.py
+    #   - request coalescing and stale-while-revalidate caching: tests/test_command_bridge.py
+    #   - queue in-flight request cleanup: tests/test_lifecycle.py
+    #   - the Music Assistant 2.10 radio library path (plural "radios"):
+    #     tests/ha/test_websocket_api.py (test_library_get_radio_uses_the_plural_ma_command_path)
+    #   - the MA server-info handshake and contract probes: tests/ha/test_websocket_api.py
+    #     (test_bootstrap_and_players; async_bootstrap_snapshot fails if either step fails)
+    #   - snapshot ordering metadata (epoch/revision): tests/ha/test_websocket_api.py
+    #     (test_queue_get, test_library_get)
 
     print("HOMEii Flow Engine repo validation passed.")
 

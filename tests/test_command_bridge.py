@@ -318,7 +318,9 @@ class RuntimeCommandTests(IsolatedAsyncioTestCase):
     def runtime(self):
         runtime = Runtime()
         runtime.hass = SimpleNamespace(
-            async_create_task=lambda coro, name=None: asyncio.get_running_loop().create_task(coro, name=name)
+            async_create_task=lambda coro, name=None: asyncio.get_running_loop().create_task(
+                coro, name=name
+            )
         )
         runtime._active = True
         runtime._background_tasks = set()
@@ -555,7 +557,11 @@ class CommandViewTests(IsolatedAsyncioTestCase):
 
     async def test_view_returns_503_while_no_entry_is_loaded(self):
         self.runtime.active = False
-        for command, body in (("get_context", {}), ("ma/command", {"command": "players/all"}), ("unknown", {})):
+        for command, body in (
+            ("get_context", {}),
+            ("ma/command", {"command": "players/all"}),
+            ("unknown", {}),
+        ):
             with self.subTest(command=command), self.assertRaises(ServiceUnavailable):
                 await self.post(command, body)
         self.assertEqual(self.runtime.calls, [])

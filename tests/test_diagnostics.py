@@ -153,7 +153,9 @@ class RedactionTests(TestCase):
             }
         }
         result = redact_diagnostics(payload)
-        self.assertEqual(result["frontend"]["brand_icon_url"], "/maverick_music_flow/homeii-flow-icon.png")
+        self.assertEqual(
+            result["frontend"]["brand_icon_url"], "/maverick_music_flow/homeii-flow-icon.png"
+        )
 
 
 def _string_list(tree: ast.AST, dict_key: str) -> list[str]:
@@ -161,9 +163,15 @@ def _string_list(tree: ast.AST, dict_key: str) -> list[str]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Dict):
             continue
-        for key, value in zip(node.keys, node.values):
-            if isinstance(key, ast.Constant) and key.value == dict_key and isinstance(value, ast.List):
-                return [element.value for element in value.elts if isinstance(element, ast.Constant)]
+        for key, value in zip(node.keys, node.values, strict=True):
+            if (
+                isinstance(key, ast.Constant)
+                and key.value == dict_key
+                and isinstance(value, ast.List)
+            ):
+                return [
+                    element.value for element in value.elts if isinstance(element, ast.Constant)
+                ]
     raise AssertionError(f"{dict_key!r} not found")
 
 

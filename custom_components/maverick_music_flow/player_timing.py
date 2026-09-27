@@ -1,6 +1,7 @@
 """Normalize paired playback clocks from MA player and current-media snapshots."""
-from datetime import UTC, datetime
+
 import math
+from datetime import UTC, datetime
 
 
 def playback_position_pair(raw):

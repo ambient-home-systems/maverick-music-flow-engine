@@ -11,12 +11,20 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 from homeassistant.helpers.event import async_track_point_in_time
 
 from . import async_get_runtime
-from .const import CONF_INSTANCE_ID, CONF_PROFILE_ID, DEFAULT_PROFILE_ID, DOMAIN, NAME, SIGNAL_ENGINE_UPDATED, VERSION
+from .const import (
+    CONF_INSTANCE_ID,
+    CONF_PROFILE_ID,
+    DEFAULT_PROFILE_ID,
+    DOMAIN,
+    NAME,
+    SIGNAL_ENGINE_UPDATED,
+    VERSION,
+)
 from .runtime import (
     HomeiiFlowRuntime,
     _due_schedule_datetime,
@@ -30,7 +38,9 @@ from .runtime import (
 
 def _profile_id(entry: ConfigEntry) -> str:
     """Return the active profile id for a config entry."""
-    return str(entry.options.get(CONF_PROFILE_ID) or entry.data.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID)
+    return str(
+        entry.options.get(CONF_PROFILE_ID) or entry.data.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID
+    )
 
 
 def _schedule_key(schedule: dict[str, Any], profile_id: str) -> str:
@@ -106,8 +116,12 @@ async def async_setup_entry(
             entities.append(entity)
         for stale_key in [key for key in known_volume_rules if key not in current_volume_rule_keys]:
             known_volume_rules.pop(stale_key).remove_from_registry()
-        _remove_stale_registry_entries(hass, entry, profile_id, "schedule", current_schedule_keys, _schedule_key)
-        _remove_stale_registry_entries(hass, entry, profile_id, "timer", current_timer_keys, _timer_key)
+        _remove_stale_registry_entries(
+            hass, entry, profile_id, "schedule", current_schedule_keys, _schedule_key
+        )
+        _remove_stale_registry_entries(
+            hass, entry, profile_id, "timer", current_timer_keys, _timer_key
+        )
         _remove_stale_registry_entries(
             hass,
             entry,
@@ -144,7 +158,16 @@ def _remove_stale_registry_entries(
         if not unique_id.startswith(prefix):
             continue
         item_id = unique_id.removeprefix(prefix)
-        key = key_fn({"id": item_id, "schedule_id": item_id, "timer_id": item_id, "player": item_id, "entity_id": item_id}, profile_id)
+        key = key_fn(
+            {
+                "id": item_id,
+                "schedule_id": item_id,
+                "timer_id": item_id,
+                "player": item_id,
+                "entity_id": item_id,
+            },
+            profile_id,
+        )
         if key in current_keys:
             continue
         registry.async_remove(registry_entry.entity_id)
@@ -179,7 +202,9 @@ class HomeiiFlowSystemScreensaverSwitch(SwitchEntity):
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to Engine updates."""
-        self.async_on_remove(async_dispatcher_connect(self.hass, SIGNAL_ENGINE_UPDATED, self.async_write_ha_state))
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ENGINE_UPDATED, self.async_write_ha_state)
+        )
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -207,11 +232,15 @@ class HomeiiFlowSystemScreensaverSwitch(SwitchEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable the system screensaver."""
-        await self._runtime.async_set_screensaver_config({"profile_id": self._profile_id, "enabled": True})
+        await self._runtime.async_set_screensaver_config(
+            {"profile_id": self._profile_id, "enabled": True}
+        )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable the system screensaver."""
-        await self._runtime.async_set_screensaver_config({"profile_id": self._profile_id, "enabled": False})
+        await self._runtime.async_set_screensaver_config(
+            {"profile_id": self._profile_id, "enabled": False}
+        )
 
 
 class HomeiiFlowScheduleSwitch(SwitchEntity):
@@ -241,7 +270,9 @@ class HomeiiFlowScheduleSwitch(SwitchEntity):
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to schedule updates and start the schedule timer."""
-        self.async_on_remove(async_dispatcher_connect(self.hass, SIGNAL_ENGINE_UPDATED, self._handle_engine_update))
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ENGINE_UPDATED, self._handle_engine_update)
+        )
         self._reschedule()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -343,7 +374,10 @@ class HomeiiFlowScheduleSwitch(SwitchEntity):
     def _schedule(self) -> dict[str, Any] | None:
         """Return the backing schedule."""
         for schedule in self._runtime.schedules(self._profile_id):
-            if str(schedule.get("id") or schedule.get("schedule_id") or "").strip() == self._schedule_id:
+            if (
+                str(schedule.get("id") or schedule.get("schedule_id") or "").strip()
+                == self._schedule_id
+            ):
                 return schedule
         return None
 
@@ -368,7 +402,8 @@ class HomeiiFlowScheduleSwitch(SwitchEntity):
             schedule_key = self._runtime._schedule_storage_key(schedule)
             if self._runtime._last_schedule_runs.get(schedule_key) != run_key:
                 self._runtime.async_create_tracked_task(
-                    self._async_fire(due_at, "switch_catchup"), "maverick_music_flow_schedule_switch"
+                    self._async_fire(due_at, "switch_catchup"),
+                    "maverick_music_flow_schedule_switch",
                 )
                 return
             now = now + timedelta(seconds=121)
@@ -382,10 +417,13 @@ class HomeiiFlowScheduleSwitch(SwitchEntity):
         @callback
         def timer_finished(now_value: datetime) -> None:
             self._runtime.async_create_tracked_task(
-                self._async_fire(_local_datetime(now_value), "switch_timer"), "maverick_music_flow_schedule_switch"
+                self._async_fire(_local_datetime(now_value), "switch_timer"),
+                "maverick_music_flow_schedule_switch",
             )
 
-        self._timer_unsub = async_track_point_in_time(self.hass, timer_finished, run_at.astimezone(UTC))
+        self._timer_unsub = async_track_point_in_time(
+            self.hass, timer_finished, run_at.astimezone(UTC)
+        )
 
     async def _async_fire(self, due_at: datetime, trigger: str) -> None:
         """Execute the schedule and reschedule its next timer."""
@@ -442,7 +480,8 @@ class HomeiiFlowScheduleSwitch(SwitchEntity):
         self._reschedule()
         self.async_write_ha_state()
         self._runtime.async_create_tracked_task(
-            self._runtime.async_tick_orchestration(trigger="schedule_switch"), "maverick_music_flow_tick"
+            self._runtime.async_tick_orchestration(trigger="schedule_switch"),
+            "maverick_music_flow_tick",
         )
 
 
@@ -472,7 +511,9 @@ class HomeiiFlowTimerSwitch(SwitchEntity):
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to timer updates and start the one-shot timer."""
-        self.async_on_remove(async_dispatcher_connect(self.hass, SIGNAL_ENGINE_UPDATED, self._handle_engine_update))
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ENGINE_UPDATED, self._handle_engine_update)
+        )
         self._reschedule()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -514,7 +555,9 @@ class HomeiiFlowTimerSwitch(SwitchEntity):
         player_state = self.hass.states.get(player) if player else None
         player_attrs = player_state.attributes if player_state is not None else {}
         player_name = str(player_attrs.get("friendly_name") or player or self._timer_id)
-        timer_type = str(timer.get("type") or timer.get("timer_type") or "Timer").replace("_", " ").title()
+        timer_type = (
+            str(timer.get("type") or timer.get("timer_type") or "Timer").replace("_", " ").title()
+        )
         return f"{timer_type}: {player_name}"
 
     @property
@@ -602,14 +645,16 @@ class HomeiiFlowTimerSwitch(SwitchEntity):
         now_utc = datetime.now(UTC)
         if ends_at <= now_utc:
             self._runtime.async_create_tracked_task(
-                self._async_fire(ends_at, "timer_switch_catchup"), "maverick_music_flow_timer_switch"
+                self._async_fire(ends_at, "timer_switch_catchup"),
+                "maverick_music_flow_timer_switch",
             )
             return
 
         @callback
         def timer_finished(now_value: datetime) -> None:
             self._runtime.async_create_tracked_task(
-                self._async_fire(now_value.astimezone(UTC), "timer_switch"), "maverick_music_flow_timer_switch"
+                self._async_fire(now_value.astimezone(UTC), "timer_switch"),
+                "maverick_music_flow_timer_switch",
             )
 
         self._timer_unsub = async_track_point_in_time(self.hass, timer_finished, ends_at)
@@ -640,7 +685,9 @@ class HomeiiFlowTimerSwitch(SwitchEntity):
         result["runner"] = "homeii_timer_switch"
         self._last_result = result
         self._runtime._last_timer_action = result
-        await self._runtime.async_delete_timer({"profile_id": self._profile_id, "timer_id": self._timer_id})
+        await self._runtime.async_delete_timer(
+            {"profile_id": self._profile_id, "timer_id": self._timer_id}
+        )
         self.remove_from_registry()
 
 
@@ -667,7 +714,9 @@ class HomeiiFlowVolumeRuleSwitch(SwitchEntity):
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to volume-rule updates."""
-        self.async_on_remove(async_dispatcher_connect(self.hass, SIGNAL_ENGINE_UPDATED, self._handle_engine_update))
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ENGINE_UPDATED, self._handle_engine_update)
+        )
 
     def remove_from_registry(self) -> None:
         """Remove this switch from Home Assistant's entity registry."""
@@ -697,7 +746,11 @@ class HomeiiFlowVolumeRuleSwitch(SwitchEntity):
     def name(self) -> str | None:
         """Return the volume-rule name."""
         state = self.hass.states.get(self._player)
-        player_name = str((state.attributes or {}).get("friendly_name") or self._player) if state else self._player
+        player_name = (
+            str((state.attributes or {}).get("friendly_name") or self._player)
+            if state
+            else self._player
+        )
         return f"Volume limit: {player_name}"
 
     @property
@@ -730,7 +783,9 @@ class HomeiiFlowVolumeRuleSwitch(SwitchEntity):
             "start_time": rule.get("start_time"),
             "end_time": rule.get("end_time"),
             "days": rule.get("days"),
-            "active_now": self._runtime._volume_rule_active(rule, _local_datetime()) if rule else False,
+            "active_now": self._runtime._volume_rule_active(rule, _local_datetime())
+            if rule
+            else False,
             "last_volume_action": self._runtime.orchestration_status().get("last_volume_action"),
         }
 

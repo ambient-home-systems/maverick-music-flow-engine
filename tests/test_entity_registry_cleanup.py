@@ -81,7 +81,8 @@ _HA_STUBS = {
     "homeassistant": _module("homeassistant"),
     "homeassistant.components": _module("homeassistant.components"),
     "homeassistant.components.switch": _module(
-        "homeassistant.components.switch", SwitchEntity=type("SwitchEntity", (), {"entity_id": None})
+        "homeassistant.components.switch",
+        SwitchEntity=type("SwitchEntity", (), {"entity_id": None}),
     ),
     "homeassistant.components.number": _module(
         "homeassistant.components.number",
@@ -101,7 +102,8 @@ _HA_STUBS = {
         "homeassistant.helpers.entity_platform", AddEntitiesCallback=object
     ),
     "homeassistant.helpers.event": _module(
-        "homeassistant.helpers.event", async_track_point_in_time=lambda *args, **kwargs: (lambda: None)
+        "homeassistant.helpers.event",
+        async_track_point_in_time=lambda *args, **kwargs: lambda: None,
     ),
 }
 
@@ -176,7 +178,9 @@ class RegistryCleanupTests(TestCase):
             title="Test",
             async_on_unload=lambda _fn: None,
         )
-        self.hass = SimpleNamespace(runtime=self.runtime, states=SimpleNamespace(get=lambda _id: None))
+        self.hass = SimpleNamespace(
+            runtime=self.runtime, states=SimpleNamespace(get=lambda _id: None)
+        )
 
     def _setup(self, module):
         """Run a platform's async_setup_entry and return (added_entities, fire_signal)."""
@@ -241,8 +245,12 @@ class RegistryCleanupTests(TestCase):
         self.runtime._timers = [{"id": "keep-timer", "enabled": True}]
 
         switch_added, fire_switch_signal = self._setup(self.switch)
-        schedule_entity = next(e for e in switch_added if getattr(e, "_schedule_id", None) == "keep")
-        timer_entity = next(e for e in switch_added if getattr(e, "_timer_id", None) == "keep-timer")
+        schedule_entity = next(
+            e for e in switch_added if getattr(e, "_schedule_id", None) == "keep"
+        )
+        timer_entity = next(
+            e for e in switch_added if getattr(e, "_timer_id", None) == "keep-timer"
+        )
 
         stale_schedule_entity_id = "switch.old_schedule"
         stale_timer_entity_id = "switch.old_timer"

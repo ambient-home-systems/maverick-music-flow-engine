@@ -8,9 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
-
 from aiohttp import web
-
 from homeassistant.auth.permissions.const import POLICY_CONTROL
 from homeassistant.components.http import HomeAssistantView, StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
@@ -23,8 +21,8 @@ from homeassistant.exceptions import (
 )
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.service import async_register_admin_service
+from homeassistant.helpers.typing import ConfigType
 
 from .artwork_proxy import (
     ARTWORK_SECURITY_HEADERS,
@@ -48,9 +46,6 @@ from .command_bridge import (
     music_assistant_command_allowed,
     strip_internal_keys,
 )
-from .exceptions import HomeiiFlowEngineError
-from .sendspin_bridge import HomeiiFlowSendspinView
-
 from .const import (
     CONF_ALLOW_LOCAL_MEDIA_URLS,
     CONF_ALLOW_NON_ADMIN_MANAGEMENT,
@@ -67,10 +62,12 @@ from .const import (
     NOT_LOADED_MESSAGE,
     PLATFORMS,
 )
+from .exceptions import HomeiiFlowEngineError
+from .interface_preferences import save_preferences
 from .queue_settings import FIELD_TYPES
 from .runtime import HomeiiFlowRuntime
+from .sendspin_bridge import HomeiiFlowSendspinView
 from .websocket_api import async_register_websocket_commands
-from .interface_preferences import save_preferences
 
 _LOGGER = logging.getLogger(__name__)
 FRONTEND_DIR = Path(__file__).parent / "frontend"
@@ -89,7 +86,9 @@ SERVICE_ANNOUNCE = "announce"
 SERVICE_PLAY_MEDIA = "play_media"
 SERVICE_PLAYER_COMMAND = "player_command"
 SERVICE_SET_QUEUE_SETTINGS = "set_queue_settings"
-SERVICE_SET_QUEUE_SETTINGS_SCHEMA = vol.Schema({vol.Optional(key): kind for key, kind in FIELD_TYPES.items()})
+SERVICE_SET_QUEUE_SETTINGS_SCHEMA = vol.Schema(
+    {vol.Optional(key): kind for key, kind in FIELD_TYPES.items()}
+)
 SERVICE_TRANSFER_QUEUE = "transfer_queue"
 SERVICE_RUN_ORCHESTRATION = "run_orchestration"
 SERVICE_SET_SCREENSAVER = "set_screensaver"
@@ -140,7 +139,9 @@ SERVICE_SET_SCHEDULE_SCHEMA = vol.Schema(
         vol.Optional("selection_mode"): str,
         vol.Optional("enqueue", default="play"): str,
         vol.Optional("radio_mode", default=False): bool,
-        vol.Optional("retry_attempts", default=4): vol.All(vol.Coerce(int), vol.Range(min=1, max=12)),
+        vol.Optional("retry_attempts", default=4): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=12)
+        ),
         vol.Optional("retry_delay", default=5): vol.All(vol.Coerce(int), vol.Range(min=1, max=30)),
         vol.Required("time"): str,
         vol.Optional("days", default=list): [int],
@@ -291,11 +292,17 @@ def _append_artwork_candidate(candidates: list[str], value: Any) -> None:
     clean = str(value or "").strip()
     ignored = {"builtin", "jpeg", "jpg", "png", "webp", "gif", "image", "images", "default"}
     lower = clean.lower()
-    if clean and clean not in candidates and (_looks_like_artwork_url(clean) or (len(clean) > 5 and lower not in ignored)):
+    if (
+        clean
+        and clean not in candidates
+        and (_looks_like_artwork_url(clean) or (len(clean) > 5 and lower not in ignored))
+    ):
         candidates.append(clean)
 
 
-def _collect_artwork_candidates(value: Any, candidates: list[str], *, depth: int = 0, art_context: bool = False) -> None:
+def _collect_artwork_candidates(
+    value: Any, candidates: list[str], *, depth: int = 0, art_context: bool = False
+) -> None:
     """Collect artwork candidates from common Music Assistant response shapes."""
     if value is None or depth > 8:
         return
@@ -317,7 +324,9 @@ def _collect_artwork_candidates(value: Any, candidates: list[str], *, depth: int
         )
         if is_art_key:
             _append_artwork_candidate(candidates, child)
-        _collect_artwork_candidates(child, candidates, depth=depth + 1, art_context=art_context or is_art_key)
+        _collect_artwork_candidates(
+            child, candidates, depth=depth + 1, art_context=art_context or is_art_key
+        )
 
 
 class HomeiiFlowArtworkProxyView(HomeAssistantView):
@@ -403,7 +412,9 @@ class HomeiiFlowArtworkProxyView(HomeAssistantView):
             if candidate.startswith("/api/maverick_music_flow/artwork/item/"):
                 # Resolve the Engine's own opaque URLs locally instead of fetching
                 # them back through Home Assistant.
-                source = runtime.resolve_artwork_source(candidate.rsplit("/", 1)[-1].split("?", 1)[0])
+                source = runtime.resolve_artwork_source(
+                    candidate.rsplit("/", 1)[-1].split("?", 1)[0]
+                )
             if source and source not in sources:
                 sources.append(source)
         fetcher, ma_base_urls, ha_base_url = self._artwork_fetcher(runtime)
@@ -523,7 +534,9 @@ class HomeiiFlowCommandView(HomeAssistantView):
         denial = access_denial(
             level,
             is_admin=bool(user.is_admin),
-            can_control=lambda entity_id: bool(user.permissions.check_entity(entity_id, POLICY_CONTROL)),
+            can_control=lambda entity_id: bool(
+                user.permissions.check_entity(entity_id, POLICY_CONTROL)
+            ),
             targets=[
                 runtime.control_entity_id(target)
                 for target in payload_targets(clean_command, payload)
@@ -599,7 +612,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 def _register_entry(runtime: HomeiiFlowRuntime, entry: ConfigEntry) -> None:
     """Pass a config entry's settings to the runtime."""
     instance_id = str(entry.data.get(CONF_INSTANCE_ID) or DEFAULT_INSTANCE_ID)
-    profile_id = str(entry.options.get(CONF_PROFILE_ID) or entry.data.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID)
+    profile_id = str(
+        entry.options.get(CONF_PROFILE_ID) or entry.data.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID
+    )
     enable_experimental = bool(entry.options.get(CONF_ENABLE_EXPERIMENTAL, False))
     allow_non_admin_management = bool(entry.options.get(CONF_ALLOW_NON_ADMIN_MANAGEMENT, False))
     allow_local_media_urls = bool(entry.options.get(CONF_ALLOW_LOCAL_MEDIA_URLS, False))
@@ -728,7 +743,9 @@ async def _async_check_service_access(hass: HomeAssistant, service: str, call: S
     denial = access_denial(
         level,
         is_admin=bool(user.is_admin),
-        can_control=lambda entity_id: bool(user.permissions.check_entity(entity_id, POLICY_CONTROL)),
+        can_control=lambda entity_id: bool(
+            user.permissions.check_entity(entity_id, POLICY_CONTROL)
+        ),
         targets=[runtime.control_entity_id(target) for target in targets],
         require_target=requires_target(service, level),
         management_allowed=runtime.non_admin_management_allowed(),
@@ -736,7 +753,9 @@ async def _async_check_service_access(hass: HomeAssistant, service: str, call: S
     if denial is None:
         return
     if denial.entity_id:
-        raise Unauthorized(context=call.context, entity_id=denial.entity_id, permission=POLICY_CONTROL)
+        raise Unauthorized(
+            context=call.context, entity_id=denial.entity_id, permission=POLICY_CONTROL
+        )
     raise Unauthorized(context=call.context)
 
 
@@ -776,13 +795,24 @@ def _async_register_guarded_service(
 
 def _async_register_services(hass: HomeAssistant) -> None:
     """Register optional automation-facing services."""
+
     async def set_interface_preferences(call: ServiceCall) -> None:
         await save_preferences(hass.data[DOMAIN]["runtime"], dict(call.data))
 
-    _async_register_guarded_service(hass, "set_interface_preferences", set_interface_preferences,
-        schema=vol.Schema({vol.Optional("profile_id"): str, vol.Optional("night_mode"): str,
-            vol.Optional("night_start"): str, vol.Optional("night_end"): str, vol.Optional("night_days"): [int]}))
-
+    _async_register_guarded_service(
+        hass,
+        "set_interface_preferences",
+        set_interface_preferences,
+        schema=vol.Schema(
+            {
+                vol.Optional("profile_id"): str,
+                vol.Optional("night_mode"): str,
+                vol.Optional("night_start"): str,
+                vol.Optional("night_end"): str,
+                vol.Optional("night_days"): [int],
+            }
+        ),
+    )
 
     async def set_volume_rule(call: ServiceCall) -> None:
         runtime = async_get_runtime(hass)
@@ -790,7 +820,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
     async def clear_volume_rules(call: ServiceCall) -> None:
         runtime = async_get_runtime(hass)
-        await runtime.async_clear_volume_rules(str(call.data.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID))
+        await runtime.async_clear_volume_rules(
+            str(call.data.get(CONF_PROFILE_ID) or DEFAULT_PROFILE_ID)
+        )
 
     async def delete_volume_rule(call: ServiceCall) -> None:
         runtime = async_get_runtime(hass)
@@ -851,20 +883,60 @@ def _async_register_services(hass: HomeAssistant) -> None:
         runtime = async_get_runtime(hass)
         await runtime.async_request_screensaver_show(dict(call.data))
 
-    _async_register_guarded_service(hass, SERVICE_SET_VOLUME_RULE, set_volume_rule, schema=SERVICE_SET_VOLUME_RULE_SCHEMA)
-    _async_register_guarded_service(hass, SERVICE_CLEAR_VOLUME_RULES, clear_volume_rules, schema=SERVICE_CLEAR_VOLUME_RULES_SCHEMA)
-    _async_register_guarded_service(hass, SERVICE_DELETE_VOLUME_RULE, delete_volume_rule, schema=SERVICE_DELETE_VOLUME_RULE_SCHEMA)
-    _async_register_guarded_service(hass, SERVICE_SET_SCHEDULE, set_schedule, schema=SERVICE_SET_SCHEDULE_SCHEMA)
-    _async_register_guarded_service(hass, SERVICE_DELETE_SCHEDULE, delete_schedule, schema=SERVICE_DELETE_SCHEDULE_SCHEMA)
-    _async_register_guarded_service(hass, SERVICE_RUN_SCHEDULE, run_schedule, schema=SERVICE_RUN_SCHEDULE_SCHEMA)
-    _async_register_guarded_service(hass, SERVICE_SET_TIMER, set_timer, schema=SERVICE_SET_TIMER_SCHEMA)
-    _async_register_guarded_service(hass, SERVICE_DELETE_TIMER, delete_timer, schema=SERVICE_DELETE_TIMER_SCHEMA)
-    _async_register_guarded_service(hass, SERVICE_ANNOUNCE, announce, schema=SERVICE_ANNOUNCE_SCHEMA)
-    _async_register_guarded_service(hass, SERVICE_PLAY_MEDIA, play_media, schema=SERVICE_PLAY_MEDIA_SCHEMA)
+    _async_register_guarded_service(
+        hass, SERVICE_SET_VOLUME_RULE, set_volume_rule, schema=SERVICE_SET_VOLUME_RULE_SCHEMA
+    )
+    _async_register_guarded_service(
+        hass,
+        SERVICE_CLEAR_VOLUME_RULES,
+        clear_volume_rules,
+        schema=SERVICE_CLEAR_VOLUME_RULES_SCHEMA,
+    )
+    _async_register_guarded_service(
+        hass,
+        SERVICE_DELETE_VOLUME_RULE,
+        delete_volume_rule,
+        schema=SERVICE_DELETE_VOLUME_RULE_SCHEMA,
+    )
+    _async_register_guarded_service(
+        hass, SERVICE_SET_SCHEDULE, set_schedule, schema=SERVICE_SET_SCHEDULE_SCHEMA
+    )
+    _async_register_guarded_service(
+        hass, SERVICE_DELETE_SCHEDULE, delete_schedule, schema=SERVICE_DELETE_SCHEDULE_SCHEMA
+    )
+    _async_register_guarded_service(
+        hass, SERVICE_RUN_SCHEDULE, run_schedule, schema=SERVICE_RUN_SCHEDULE_SCHEMA
+    )
+    _async_register_guarded_service(
+        hass, SERVICE_SET_TIMER, set_timer, schema=SERVICE_SET_TIMER_SCHEMA
+    )
+    _async_register_guarded_service(
+        hass, SERVICE_DELETE_TIMER, delete_timer, schema=SERVICE_DELETE_TIMER_SCHEMA
+    )
+    _async_register_guarded_service(
+        hass, SERVICE_ANNOUNCE, announce, schema=SERVICE_ANNOUNCE_SCHEMA
+    )
+    _async_register_guarded_service(
+        hass, SERVICE_PLAY_MEDIA, play_media, schema=SERVICE_PLAY_MEDIA_SCHEMA
+    )
     if not hass.services.has_service(DOMAIN, SERVICE_SET_QUEUE_SETTINGS):
-        async_register_admin_service(hass, DOMAIN, SERVICE_SET_QUEUE_SETTINGS, set_queue_settings, schema=SERVICE_SET_QUEUE_SETTINGS_SCHEMA)
-    _async_register_guarded_service(hass, SERVICE_PLAYER_COMMAND, player_command, schema=SERVICE_PLAYER_COMMAND_SCHEMA)
-    _async_register_guarded_service(hass, SERVICE_TRANSFER_QUEUE, transfer_queue, schema=SERVICE_TRANSFER_QUEUE_SCHEMA)
+        async_register_admin_service(
+            hass,
+            DOMAIN,
+            SERVICE_SET_QUEUE_SETTINGS,
+            set_queue_settings,
+            schema=SERVICE_SET_QUEUE_SETTINGS_SCHEMA,
+        )
+    _async_register_guarded_service(
+        hass, SERVICE_PLAYER_COMMAND, player_command, schema=SERVICE_PLAYER_COMMAND_SCHEMA
+    )
+    _async_register_guarded_service(
+        hass, SERVICE_TRANSFER_QUEUE, transfer_queue, schema=SERVICE_TRANSFER_QUEUE_SCHEMA
+    )
     _async_register_guarded_service(hass, SERVICE_RUN_ORCHESTRATION, run_orchestration)
-    _async_register_guarded_service(hass, SERVICE_SET_SCREENSAVER, set_screensaver, schema=SERVICE_SET_SCREENSAVER_SCHEMA)
-    _async_register_guarded_service(hass, SERVICE_SHOW_SCREENSAVER, show_screensaver, schema=SERVICE_SHOW_SCREENSAVER_SCHEMA)
+    _async_register_guarded_service(
+        hass, SERVICE_SET_SCREENSAVER, set_screensaver, schema=SERVICE_SET_SCREENSAVER_SCHEMA
+    )
+    _async_register_guarded_service(
+        hass, SERVICE_SHOW_SCREENSAVER, show_screensaver, schema=SERVICE_SHOW_SCREENSAVER_SCHEMA
+    )

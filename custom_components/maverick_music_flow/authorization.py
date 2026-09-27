@@ -332,8 +332,13 @@ def payload_targets(name: str, payload: dict[str, Any]) -> list[str]:
     ``name`` is a WebSocket command without prefix, an HTTP view command or a service
     name. Key precedence mirrors the runtime method that finally runs the request.
     """
-    if name in {"playback/play_media", "player/command", "queue/action", "play_media",
-                "player_command"}:
+    if name in {
+        "playback/play_media",
+        "player/command",
+        "queue/action",
+        "play_media",
+        "player_command",
+    }:
         return _first(payload, "player", "entity_id", "selected_player")
     if name in {"queue/transfer", "transfer_queue"}:
         return _unique(
@@ -372,8 +377,10 @@ def stored_targets(
     the player directly are covered by payload_targets().
     """
     profile_id = _clean(payload.get("profile_id")) or default_profile_id
-    item_id = _clean(payload.get("id")) or _clean(payload.get("schedule_id")) or _clean(
-        payload.get("timer_id")
+    item_id = (
+        _clean(payload.get("id"))
+        or _clean(payload.get("schedule_id"))
+        or _clean(payload.get("timer_id"))
     )
 
     def players(items: Iterable[dict[str, Any]], *, match_id: bool) -> list[str]:

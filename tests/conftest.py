@@ -269,7 +269,17 @@ class FakeMusicAssistant:
             "tracks": [track],
             "albums": [],
             "artists": [],
-            "radios": [],
+            "radios": [
+                {
+                    "item_id": "r1",
+                    "provider": "library",
+                    "name": "Jazz FM",
+                    "uri": "library://radio/r1",
+                    "media_type": "radio",
+                    "image": artwork,
+                    "favorite": False,
+                }
+            ],
             "podcasts": [],
             "audiobooks": [],
             "genres": [],
