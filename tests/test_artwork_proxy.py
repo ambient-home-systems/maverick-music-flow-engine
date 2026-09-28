@@ -10,6 +10,7 @@ import ast
 import hashlib
 import ipaddress
 import logging
+import runpy
 import secrets
 import socket
 import time
@@ -195,6 +196,7 @@ def load_runtime_token_methods():
         "resolve_artwork_source",
         "cached_artwork_content",
         "cache_artwork_content",
+        "_forget_artwork_token",
     }
     cls = next(
         n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "HomeiiFlowRuntime"
@@ -205,7 +207,11 @@ def load_runtime_token_methods():
         n
         for n in tree.body
         if isinstance(n, ast.Assign)
-        and any(isinstance(t, ast.Name) and t.id == "ARTWORK_TOKEN_LIFETIME" for t in n.targets)
+        and any(
+            isinstance(t, ast.Name)
+            and (t.id == "ARTWORK_TOKEN_LIFETIME" or t.id.startswith("ARTWORK_"))
+            for t in n.targets
+        )
     ]
     module = ast.Module(
         body=[
@@ -216,7 +222,12 @@ def load_runtime_token_methods():
         type_ignores=[],
     )
     ns = dict(
-        hashlib=hashlib, time=time, Any=Any, normalize_image_type=PROXY["normalize_image_type"]
+        hashlib=hashlib,
+        time=time,
+        Any=Any,
+        normalize_image_type=PROXY["normalize_image_type"],
+        MAX_ARTWORK_BYTES=PROXY["MAX_ARTWORK_BYTES"],
+        BoundedCache=runpy.run_path(str(COMPONENT / "bounded_cache.py"))["BoundedCache"],
     )
     exec(compile(ast.fix_missing_locations(module), str(source), "exec"), ns)
     return ns
@@ -226,11 +237,22 @@ RUNTIME_NS = load_runtime_token_methods()
 Runtime = RUNTIME_NS["HomeiiFlowRuntime"]
 
 
-def make_runtime(secret=None):
+def make_runtime(secret=None, *, max_tokens=None, max_content_bytes=None):
+    """Build a runtime with the artwork caches configured as in HomeiiFlowRuntime.__init__."""
     runtime = Runtime.__new__(Runtime)
-    runtime._artwork_sources = {}
+    cache = RUNTIME_NS["BoundedCache"]
+    runtime._artwork_sources = cache(
+        max_entries=max_tokens or RUNTIME_NS["ARTWORK_TOKEN_MAX_ENTRIES"],
+        expires_at=lambda entry: entry[1],
+        on_evict=runtime._forget_artwork_token,
+    )
     runtime._artwork_source_tokens = {}
-    runtime._artwork_content_cache = {}
+    runtime._artwork_content_cache = cache(
+        max_entries=RUNTIME_NS["ARTWORK_CONTENT_CACHE_MAX_ENTRIES"],
+        max_bytes=max_content_bytes or RUNTIME_NS["ARTWORK_CONTENT_CACHE_MAX_BYTES"],
+        expires_at=lambda entry: entry[0],
+        sizeof=lambda entry: len(entry[1]),
+    )
     runtime._artwork_token_secret = secret or secrets.token_bytes(32)
     runtime._storage = {}
     return runtime
@@ -296,6 +318,72 @@ class TokenTests(TestCase):
         self.assertIsNone(runtime.cached_artwork_content(self.SOURCE))
         runtime.cache_artwork_content(self.SOURCE, JPEG, "image/jpg; charset=binary")
         self.assertEqual(runtime.cached_artwork_content(self.SOURCE), (JPEG, "image/jpeg"))
+
+    def test_least_recently_used_token_is_evicted_first(self):
+        runtime = make_runtime(max_tokens=3)
+        urls = [runtime.register_artwork_source(f"http://radio.test/{i}.png") for i in range(3)]
+        tokens = [url.rsplit("/", 1)[-1] for url in urls]
+        # Token 0 is the oldest, but it is in active use: resolving it makes token 1 the LRU.
+        self.assertEqual(runtime.resolve_artwork_source(tokens[0]), "http://radio.test/0.png")
+        runtime.register_artwork_source("http://radio.test/3.png")
+        self.assertEqual(runtime.resolve_artwork_source(tokens[1]), "")
+        self.assertEqual(runtime.resolve_artwork_source(tokens[0]), "http://radio.test/0.png")
+        self.assertEqual(runtime.resolve_artwork_source(tokens[2]), "http://radio.test/2.png")
+        self.assertEqual(len(runtime._artwork_sources), 3)
+
+    def test_registering_a_known_source_again_keeps_it_from_being_evicted(self):
+        runtime = make_runtime(max_tokens=2)
+        first = runtime.register_artwork_source("http://radio.test/a.png")
+        runtime.register_artwork_source("http://radio.test/b.png")
+        self.assertEqual(runtime.register_artwork_source("http://radio.test/a.png"), first)
+        runtime.register_artwork_source("http://radio.test/c.png")
+        self.assertEqual(
+            runtime.resolve_artwork_source(first.rsplit("/", 1)[-1]), "http://radio.test/a.png"
+        )
+        self.assertNotIn("http://radio.test/b.png", runtime._artwork_source_tokens)
+
+    def test_evicted_token_frees_its_source_shortcut(self):
+        runtime = make_runtime(max_tokens=1)
+        runtime.register_artwork_source("http://radio.test/a.png")
+        runtime.register_artwork_source("http://radio.test/b.png")
+        self.assertEqual(list(runtime._artwork_source_tokens), ["http://radio.test/b.png"])
+
+    def test_expired_tokens_are_dropped_when_another_is_registered(self):
+        runtime = make_runtime()
+        stale = runtime.register_artwork_source("http://radio.test/old.png").rsplit("/", 1)[-1]
+        runtime._artwork_sources[stale] = ("http://radio.test/old.png", time.monotonic() - 1)
+        runtime.register_artwork_source("http://radio.test/new.png")
+        self.assertNotIn(stale, runtime._artwork_sources)
+        self.assertNotIn("http://radio.test/old.png", runtime._artwork_source_tokens)
+
+    def test_content_cache_respects_the_byte_limit_and_evicts_least_recently_used(self):
+        body = PNG + b"\x00" * 1000
+        runtime = make_runtime(max_content_bytes=len(body) * 3)
+        for name in "abc":
+            runtime.cache_artwork_content(f"http://radio.test/{name}.png", body, "image/png")
+        # Reading "a" makes "b" the least recently used entry.
+        self.assertIsNotNone(runtime.cached_artwork_content("http://radio.test/a.png"))
+        runtime.cache_artwork_content("http://radio.test/d.png", body, "image/png")
+        self.assertIsNone(runtime.cached_artwork_content("http://radio.test/b.png"))
+        for name in "acd":
+            self.assertIsNotNone(runtime.cached_artwork_content(f"http://radio.test/{name}.png"))
+        self.assertLessEqual(runtime._artwork_content_cache.total_bytes, len(body) * 3)
+
+    def test_content_cache_skips_bodies_over_the_per_image_limit(self):
+        runtime = make_runtime()
+        too_big = PNG + b"\x00" * PROXY["MAX_ARTWORK_BYTES"]
+        runtime.cache_artwork_content(self.SOURCE, too_big, "image/png")
+        self.assertIsNone(runtime.cached_artwork_content(self.SOURCE))
+
+    def test_content_cache_total_is_capped_at_64_mib(self):
+        self.assertEqual(RUNTIME_NS["ARTWORK_CONTENT_CACHE_MAX_BYTES"], 64 * MIB)
+        runtime = make_runtime()
+        image = PNG + b"\x00" * (4 * MIB)
+        for index in range(40):
+            runtime.cache_artwork_content(f"http://radio.test/{index}.png", image, "image/png")
+        self.assertLessEqual(runtime._artwork_content_cache.total_bytes, 64 * MIB)
+        self.assertIsNotNone(runtime.cached_artwork_content("http://radio.test/39.png"))
+        self.assertIsNone(runtime.cached_artwork_content("http://radio.test/0.png"))
 
 
 class ValidationTests(TestCase):
