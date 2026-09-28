@@ -119,7 +119,9 @@
           "enabled": "Enabled"
         },
         "data_description": {
-          "days": "Optional comma separated weekday numbers, Sunday=0. Example: 0,1,2"
+          "start_time": "Optional HH:MM. The limit starts at this minute. Empty means midnight.",
+          "end_time": "Optional HH:MM. The limit ends when this minute starts, so 07:00 ends at 07:00. An end earlier than the start continues past midnight. Empty means midnight.",
+          "days": "Optional comma separated weekday numbers, Sunday=0. Example: 0,1,2. A limit that continues past midnight belongs to the day it starts."
         }
       },
       "delete_volume_rule": {
@@ -144,7 +146,7 @@
         },
         "data_description": {
           "id": "Optional stable ID. Leave empty to create one automatically.",
-          "time": "Local HH:MM time.",
+          "time": "Local HH:MM time. A time skipped when clocks go forward runs at the first minute after the change; a time repeated when clocks go back runs once.",
           "days": "Optional comma separated weekday numbers, Sunday=0. Example: 0,1,2"
         }
       },
