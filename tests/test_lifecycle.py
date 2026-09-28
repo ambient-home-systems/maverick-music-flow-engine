@@ -672,7 +672,7 @@ class UnloadTests(LifecycleTestCase):
         await started.wait()
         (inflight,) = runtime._queue_inflight.values()
         self.assertIn(inflight, runtime._background_tasks)
-        # The card gave up first, so nobody removes the in-flight entry (finding B-4).
+        # The card gave up first; the request keeps running until it finishes or unloads.
         caller.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await caller
