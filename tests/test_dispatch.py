@@ -338,7 +338,12 @@ class ScheduleExecutionTests(unittest.IsolatedAsyncioTestCase):
             _schedule_run_key=lambda *args: "due",
             schedules=lambda: [r.schedule],
             _schedule_unsubs={},
+            _storage={},
+            _store=SimpleNamespace(async_save=AsyncMock()),
             hass=object(),
+        )
+        r.runtime._record_schedule_run = lambda key, run_key: r.runtime._last_schedule_runs.update(
+            {key: run_key}
         )
         r.manager = SimpleNamespace(reschedule_all=Mock(), write_status=Mock())
         started = asyncio.Event()

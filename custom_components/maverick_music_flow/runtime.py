@@ -67,6 +67,10 @@ _PLAY_VERIFY_INTERVAL = 0.4
 # How long unload waits for cancelled tasks, so a stuck task cannot block it.
 SHUTDOWN_TASK_TIMEOUT = 10
 
+# Most schedule last-run keys kept in storage. There is one per schedule; keys of deleted
+# schedules are dropped when another run is recorded.
+_SCHEDULE_LAST_RUNS_LIMIT = 256
+
 # Opaque artwork tokens slide on every use. The Engine's own detail cache serves stale
 # responses for up to 24 hours, so tokens outlive the longest cached response.
 ARTWORK_TOKEN_LIFETIME = 48 * 60 * 60
@@ -836,19 +840,13 @@ class HomeiiScheduleRunner:
             }
         else:
             self.last_triggered_at = _utc_iso()
-            # Reserve before yielding so switch/interval callbacks cannot replay this run.
-            self.runtime._last_schedule_runs[self.key] = run_key
+            # Reserve before yielding so switch/interval callbacks cannot replay this run,
+            # and save it so a restart inside the due window cannot either.
+            self.runtime._record_schedule_run(self.key, run_key)
+            await self.runtime._store.async_save(self.runtime._storage)
             result = await self.action_queue.async_run(schedule, due_at=run_at, trigger=trigger)
             if result.get("ok") and str(schedule.get("after_run") or "") == "disable":
-                schedule["enabled"] = False
-                self.runtime._storage["schedules"] = [
-                    schedule
-                    if existing.get("profile_id") == schedule.get("profile_id")
-                    and existing.get("id") == schedule.get("id")
-                    else existing
-                    for existing in self.runtime.schedules()
-                ]
-                await self.runtime.async_save()
+                await self.runtime.async_disable_schedule_after_run(schedule)
 
         self.last_result = result
         self.runtime._last_schedule_action = result
@@ -2064,6 +2062,16 @@ class HomeiiFlowRuntime:
                     else {},
                 }
             )
+            stored_runs = stored.get("schedule_last_runs")
+            if isinstance(stored_runs, dict):
+                self._last_schedule_runs = dict(
+                    [
+                        (key, run_key)
+                        for key, run_key in stored_runs.items()
+                        if isinstance(key, str) and isinstance(run_key, str)
+                    ][-_SCHEDULE_LAST_RUNS_LIMIT:]
+                )
+                self._storage["schedule_last_runs"] = dict(self._last_schedule_runs)
         stored_secret = stored.get("artwork_token_secret") if isinstance(stored, dict) else None
         if not self._restore_artwork_token_secret(stored_secret):
             # First load (or a corrupt value): persist the generated secret so artwork
@@ -4660,6 +4668,53 @@ class HomeiiFlowRuntime:
             f"{schedule.get('profile_id')}:{schedule.get('id')}:"
             f"{now.date().isoformat()}:{schedule.get('time')}"
         )
+
+    def _record_schedule_run(self, key: str, run_key: str) -> None:
+        """Remember a schedule's last run in memory and in storage (saved by the caller).
+
+        Only the latest run of each current schedule is kept, at most
+        _SCHEDULE_LAST_RUNS_LIMIT of them.
+        """
+        current = {self._schedule_storage_key(schedule) for schedule in self.schedules()}
+        runs = {
+            existing: value
+            for existing, value in self._last_schedule_runs.items()
+            if existing != key and existing in current
+        }
+        runs[key] = run_key
+        self._last_schedule_runs = dict(list(runs.items())[-_SCHEDULE_LAST_RUNS_LIMIT:])
+        self._storage["schedule_last_runs"] = dict(self._last_schedule_runs)
+
+    async def async_disable_schedule_after_run(self, schedule: dict[str, Any]) -> bool:
+        """Turn off a run-once (after_run=disable) schedule after it ran.
+
+        ``schedule`` is the copy the run started with. Only ``enabled`` changes on the
+        stored schedule. A schedule deleted or edited while it ran (its ``updated_at``
+        changed) is left alone, so an edit is never overwritten and a deleted schedule
+        is never recreated. Returns whether the schedule was disabled.
+        """
+        profile_id = schedule.get("profile_id")
+        schedule_id = schedule.get("id")
+        schedules = list(self.schedules())
+        index = next(
+            (
+                position
+                for position, existing in enumerate(schedules)
+                if existing.get("profile_id") == profile_id and existing.get("id") == schedule_id
+            ),
+            None,
+        )
+        if index is None:
+            _LOGGER.debug("Schedule %s was deleted while it ran; not disabling", schedule_id)
+            return False
+        current = schedules[index]
+        if current.get("updated_at") != schedule.get("updated_at"):
+            _LOGGER.debug("Schedule %s was edited while it ran; not disabling", schedule_id)
+            return False
+        schedules[index] = {**current, "enabled": False, "updated_at": _utc_iso()}
+        self._storage["schedules"] = schedules
+        await self.async_save()
+        return True
 
     async def async_execute_schedule(self, schedule: dict[str, Any]) -> dict[str, Any]:
         """Execute a stored playback schedule."""

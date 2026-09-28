@@ -442,6 +442,8 @@ class HomeiiFlowScheduleSwitch(SwitchEntity):
             return
 
         self._last_triggered_at = _utc_iso()
+        # The runner applies after_run=disable (async_disable_schedule_after_run); writing
+        # this copy back here would undo edits made during the run.
         try:
             result = await self._runtime.async_run_scheduled_schedule(
                 self._profile_id, self._schedule_id, due_at
@@ -461,7 +463,7 @@ class HomeiiFlowScheduleSwitch(SwitchEntity):
         result["runner"] = "homeii_schedule_switch"
 
         self._last_result = result
-        self._runtime._last_schedule_runs[schedule_key] = run_key
+        self._runtime._record_schedule_run(schedule_key, run_key)
         self._runtime._last_schedule_action = result
         self._runtime._last_schedule_check = {
             "checked_at": _utc_iso(),
@@ -475,10 +477,6 @@ class HomeiiFlowScheduleSwitch(SwitchEntity):
             "failed_count": 0 if result.get("ok") else 1,
             "due_at": due_at.isoformat(),
         }
-        if result.get("ok") and str(schedule.get("after_run") or "") == "disable":
-            payload = dict(schedule)
-            payload["enabled"] = False
-            await self._runtime.async_set_schedule(payload)
         self._reschedule()
         self.async_write_ha_state()
         self._runtime.async_create_tracked_task(
