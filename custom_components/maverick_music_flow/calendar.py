@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from datetime import time as dt_time
 from typing import Any
 
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
@@ -25,7 +24,18 @@ from .const import (
     SIGNAL_ENGINE_UPDATED,
     VERSION,
 )
-from .runtime import HomeiiFlowRuntime, _homeii_weekday, _parse_hhmm, _schedule_days
+from .runtime import (
+    HomeiiFlowRuntime,
+    _homeii_weekday,
+    _instant,
+    _parse_hhmm,
+    _schedule_days,
+    _schedule_local_datetime,
+)
+
+# How long a schedule occurrence stays "on" in the calendar. A schedule fires at one
+# moment; this window lets Home Assistant show the calendar as "on" while it plays.
+SCHEDULE_EVENT_DURATION = timedelta(minutes=30)
 
 
 def _profile_id(entry: ConfigEntry) -> str:
@@ -35,14 +45,15 @@ def _profile_id(entry: ConfigEntry) -> str:
     )
 
 
-def _as_local_datetime(value: date | datetime, *, end_of_day: bool = False) -> datetime:
-    """Convert a date or datetime into a local timezone-aware datetime."""
+def _as_local_datetime(value: date | datetime) -> datetime:
+    """Convert a date or datetime into a local timezone-aware datetime.
+
+    A plain date means the start of that local day, which is a valid instant even when
+    daylight saving skips midnight.
+    """
     if isinstance(value, datetime):
-        return dt_util.as_local(
-            value if value.tzinfo is not None else value.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
-        )
-    local_time = dt_time.max if end_of_day else dt_time.min
-    return datetime.combine(value, local_time, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+        return dt_util.as_local(value)
+    return dt_util.start_of_local_day(value)
 
 
 async def async_setup_entry(
@@ -111,53 +122,68 @@ class HomeiiFlowScheduleCalendar(CalendarEntity):
         *,
         limit: int = 250,
     ) -> list[CalendarEvent]:
-        """Build calendar events from stored Maverick schedules."""
+        """Return the soonest events that overlap the range, from every schedule.
+
+        A range that is a plain end date includes that whole day. Candidates from all
+        schedules are collected and sorted before the limit is applied, so the limit
+        keeps the soonest events rather than those of the first stored schedules.
+        """
         profile_id = _profile_id(self._entry)
         start = _as_local_datetime(start_date)
-        end = _as_local_datetime(end_date, end_of_day=not isinstance(end_date, datetime))
-        if end < start:
+        if isinstance(end_date, datetime):
+            end = _as_local_datetime(end_date)
+        else:
+            end = _as_local_datetime(end_date + timedelta(days=1))
+        if _instant(end) <= _instant(start):
             return []
 
         events: list[CalendarEvent] = []
-        cursor = start.date()
-        end_day = end.date()
         for schedule in self._runtime.schedules(profile_id):
-            events.extend(
-                self._schedule_events(schedule, cursor, end_day, start, end, limit - len(events))
-            )
-            if len(events) >= limit:
-                break
-        events.sort(key=lambda event: event.start)
+            events.extend(self._schedule_events(schedule, start, end, limit))
+        events.sort(key=lambda event: _instant(event.start))
         return events[:limit]
 
     def _schedule_events(
         self,
         schedule: dict[str, Any],
-        start_day: date,
-        end_day: date,
         start: datetime,
         end: datetime,
         limit: int,
     ) -> list[CalendarEvent]:
-        """Return calendar events for a single schedule."""
+        """Return up to ``limit`` events of one schedule that overlap ``start`` to ``end``.
+
+        An event overlaps when it ends after the range starts and starts before the range
+        ends, so an event already in progress at ``start`` is included.
+        """
         if limit <= 0 or not bool(schedule.get("enabled", True)):
             return []
         parsed_time = _parse_hhmm(schedule.get("time"))
         if parsed_time is None:
             return []
         days = _schedule_days(schedule)
+        zone = dt_util.get_default_time_zone()
         events: list[CalendarEvent] = []
-        day = start_day
+        # Begin a day early: an event that started before midnight may still be running.
+        day = start.date() - timedelta(days=1)
+        end_day = end.date()
         while day <= end_day and len(events) < limit:
-            event_start = datetime.combine(
-                day, dt_time(parsed_time[0], parsed_time[1]), tzinfo=dt_util.DEFAULT_TIME_ZONE
-            )
-            if (not days or _homeii_weekday(event_start) in days) and start <= event_start <= end:
-                events.append(self._calendar_event(schedule, event_start))
+            if not days or _homeii_weekday(day) in days:
+                event_start = _schedule_local_datetime(day, *parsed_time, zone)
+                event_end = dt_util.as_local(_instant(event_start) + SCHEDULE_EVENT_DURATION)
+                if event_end.replace(tzinfo=None) <= event_start.replace(tzinfo=None):
+                    # The clocks went back during the event. Home Assistant validates
+                    # and compares times in one zone by wall clock and would reject an
+                    # end before the start, so fall back to the wall-clock end (the
+                    # event then spans the repeated hour).
+                    event_end = event_start + SCHEDULE_EVENT_DURATION
+                if _instant(event_end) > _instant(start) and _instant(event_start) < _instant(end):
+                    events.append(self._calendar_event(schedule, event_start, event_end))
             day += timedelta(days=1)
         return events
 
-    def _calendar_event(self, schedule: dict[str, Any], event_start: datetime) -> CalendarEvent:
+    def _calendar_event(
+        self, schedule: dict[str, Any], event_start: datetime, event_end: datetime
+    ) -> CalendarEvent:
         """Build one Home Assistant calendar event."""
         name = str(
             schedule.get("name")
@@ -177,7 +203,7 @@ class HomeiiFlowScheduleCalendar(CalendarEntity):
         return CalendarEvent(
             summary=name,
             start=event_start,
-            end=event_start + timedelta(minutes=30),
+            end=event_end,
             description="\n".join(detail for detail in details if detail),
             uid=f"maverick-music-flow-{schedule.get('id') or schedule.get('schedule_id')}-{event_start.isoformat()}",
         )
