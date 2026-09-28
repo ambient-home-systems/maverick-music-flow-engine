@@ -27,19 +27,19 @@ set_volume_rule:
           mode: slider
     start_time:
       name: Start time
-      description: Optional HH:MM start time.
+      description: Optional HH:MM start time. The limit starts at this minute. Empty means midnight.
       example: "22:00"
       selector:
         text:
     end_time:
       name: End time
-      description: Optional HH:MM end time.
+      description: Optional HH:MM end time. The limit ends when this minute starts, so 07:00 ends at 07:00. An end earlier than the start continues past midnight; an end equal to the start covers 24 hours. Empty means midnight.
       example: "07:00"
       selector:
         text:
     days:
       name: Days
-      description: Optional weekday indexes, Sunday=0.
+      description: Optional weekday indexes, Sunday=0. A limit that continues past midnight belongs to the day it starts.
       selector:
         object:
     enabled:
@@ -166,7 +166,7 @@ set_schedule:
           mode: box
     time:
       name: Time
-      description: Local time in HH:MM format.
+      description: Local time in HH:MM format. A time skipped when clocks go forward runs at the first minute after the change; a time repeated when clocks go back runs once.
       required: true
       example: "07:30"
       selector:

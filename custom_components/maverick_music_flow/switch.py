@@ -406,7 +406,9 @@ class HomeiiFlowScheduleSwitch(SwitchEntity):
                     "maverick_music_flow_schedule_switch",
                 )
                 return
-            now = now + timedelta(seconds=121)
+            # Past this due window in elapsed time; wall-clock addition is off by the
+            # daylight-saving change.
+            now = _local_datetime(now.astimezone(UTC) + timedelta(seconds=121))
 
         next_run = _next_schedule_datetime(schedule, now, include_due=False)
         if next_run is None:

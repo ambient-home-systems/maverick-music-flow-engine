@@ -210,7 +210,7 @@ data:
   enabled: true
 ```
 
-The rule can lower volume while active. Check your HA timezone and test its boundaries. Profile-wide `clear_volume_rules` removes all rules for that profile; prefer individual edits/deletion when that is the intent.
+The rule can lower volume while active. The start minute is included and the end minute is not, so this rule applies from 22:00 until 06:59:59. An end earlier than the start continues past midnight, and an end equal to the start covers 24 hours; an empty start or end means midnight. With `days` (Sunday = 0), a window belongs to the day it starts: a Friday-only 22:00-07:00 rule applies from Friday 22:00 to Saturday 07:00, not on Friday morning. Check your HA timezone and test its boundaries. Profile-wide `clear_volume_rules` removes all rules for that profile; prefer individual edits/deletion when that is the intent.
 
 ### Set MA's global playback defaults deliberately
 
@@ -226,7 +226,7 @@ This administrator action changes **global MA defaults**, not just one card/play
 
 ### Scheduling and other services
 
-The Configure flow offers guided menus for stored schedules, timers and rules. `maverick_music_flow.set_schedule` accepts the player, local time, media and optional days/volume; `maverick_music_flow.run_schedule` tests a saved ID immediately. Check the [service definitions](custom_components/maverick_music_flow/services.yaml) for exact fields and units before writing an automation. Day indices use **Sunday = 0**. Use a valid media URI from your own MA library, not a made-up example URI.
+The Configure flow offers guided menus for stored schedules, timers and rules. `maverick_music_flow.set_schedule` accepts the player, local time, media and optional days/volume; `maverick_music_flow.run_schedule` tests a saved ID immediately. On daylight-saving change days, a schedule time the clocks skip (02:30 when 02:00 jumps to 03:00) runs at the first minute after the change (03:00), and a time that happens twice (01:30 when clocks go back) runs only the first time. Check the [service definitions](custom_components/maverick_music_flow/services.yaml) for exact fields and units before writing an automation. Day indices use **Sunday = 0**. Use a valid media URI from your own MA library, not a made-up example URI.
 
 Other actions include `play_media`, `transfer_queue`, `announce`, `delete_schedule`, `delete_volume_rule`, `run_orchestration`, `set_screensaver` and `show_screensaver`. Announcement/TTS configuration and the selected target matter; test on one speaker before expanding to rooms.
 

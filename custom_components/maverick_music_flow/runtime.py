@@ -11,7 +11,7 @@ import secrets
 import time
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, tzinfo
 from typing import Any
 from urllib.parse import quote
 from uuid import uuid4
@@ -489,7 +489,7 @@ def _minutes(hour: int, minute: int) -> int:
     return hour * 60 + minute
 
 
-def _homeii_weekday(now: datetime) -> int:
+def _homeii_weekday(now: date) -> int:
     """Return weekday where Sunday is 0."""
     return (now.weekday() + 1) % 7
 
@@ -509,8 +509,46 @@ def _schedule_days(schedule: dict[str, Any]) -> list[int]:
     return days
 
 
+def _instant(value: datetime) -> datetime:
+    """Return an aware datetime in UTC so comparisons use elapsed time.
+
+    Python compares and subtracts two datetimes that share a tzinfo by their wall-clock
+    fields, which is wrong across a daylight-saving change. Naive values are unchanged.
+    """
+    return value.astimezone(UTC) if value.tzinfo is not None else value
+
+
+def _local_time_exists(value: datetime) -> bool:
+    """Return whether an aware local wall time exists (is not skipped by a DST change)."""
+    round_trip = value.astimezone(UTC).astimezone(value.tzinfo)
+    return round_trip.replace(tzinfo=None) == value.replace(tzinfo=None)
+
+
+def _schedule_local_datetime(day: date, hour: int, minute: int, zone: tzinfo | None) -> datetime:
+    """Return when a schedule set for HH:MM runs on a local calendar day.
+
+    A time the clocks skip when daylight saving starts (02:30 when 02:00 jumps to 03:00)
+    runs at the first valid minute after the gap (03:00). A time that happens twice when
+    daylight saving ends (01:30) runs at its first occurrence only (fold=0).
+    """
+    candidate = datetime(day.year, day.month, day.day, hour, minute, tzinfo=zone)
+    if zone is None:
+        return candidate
+    # A gap is at most a day long (a time zone moving across the date line).
+    for _ in range(24 * 60):
+        if _local_time_exists(candidate):
+            break
+        candidate = (candidate.replace(tzinfo=None) + timedelta(minutes=1)).replace(tzinfo=zone)
+    return candidate
+
+
 def _due_schedule_datetime(schedule: dict[str, Any], now: datetime) -> datetime | None:
-    """Return the local schedule datetime that is due now, if any."""
+    """Return the local schedule datetime that is due now, if any.
+
+    A run is due for two minutes after its local time on a chosen day, measured in
+    elapsed time so a daylight-saving change neither skips nor repeats it (see
+    _schedule_local_datetime).
+    """
     if not bool(schedule.get("enabled", True)):
         return None
     schedule_time = _parse_hhmm(schedule.get("time"))
@@ -518,15 +556,11 @@ def _due_schedule_datetime(schedule: dict[str, Any], now: datetime) -> datetime 
         return None
     days = _schedule_days(schedule)
     for day_offset in (0, -1):
-        candidate = (now + timedelta(days=day_offset)).replace(
-            hour=schedule_time[0],
-            minute=schedule_time[1],
-            second=0,
-            microsecond=0,
-        )
-        if days and _homeii_weekday(candidate) not in days:
+        day = now.date() + timedelta(days=day_offset)
+        if days and _homeii_weekday(day) not in days:
             continue
-        delta_seconds = (now - candidate).total_seconds()
+        candidate = _schedule_local_datetime(day, *schedule_time, now.tzinfo)
+        delta_seconds = (_instant(now) - _instant(candidate)).total_seconds()
         if 0 <= delta_seconds < 120:
             return candidate
     return None
@@ -550,35 +584,44 @@ def _next_schedule_datetime(
         return None
     days = _schedule_days(schedule)
     for day_offset in range(8):
-        candidate = (now + timedelta(days=day_offset)).replace(
-            hour=schedule_time[0],
-            minute=schedule_time[1],
-            second=0,
-            microsecond=0,
-        )
-        if days and _homeii_weekday(candidate) not in days:
+        day = now.date() + timedelta(days=day_offset)
+        if days and _homeii_weekday(day) not in days:
             continue
-        if candidate >= now:
+        candidate = _schedule_local_datetime(day, *schedule_time, now.tzinfo)
+        if _instant(candidate) >= _instant(now):
             return candidate
     return None
 
 
-def _time_window_active(now: datetime, start_time: str, end_time: str) -> bool:
-    """Return whether the current local time is inside an optional time window."""
+def _time_window_active(
+    now: datetime, start_time: str, end_time: str, days: list[int] | None = None
+) -> bool:
+    """Return whether a local time is inside an optional daily time window.
+
+    The start minute is included and the end minute is not: 22:00-07:00 is active from
+    22:00 until 06:59:59, as in Home Assistant's time condition. A missing start or end
+    means midnight. A start later than the end crosses midnight, and an equal start and
+    end covers a full 24 hours.
+
+    ``days`` (Sunday = 0) are the days a window starts on. The part of a window after
+    midnight belongs to the day before, so a Friday 22:00-06:00 window runs until 06:00
+    on Saturday and a Thursday one does not reach into Friday.
+    """
     start = _parse_hhmm(start_time)
     end = _parse_hhmm(end_time)
-    if start is None and end is None:
-        return True
+    start_minutes = _minutes(*start) if start is not None else 0
+    end_minutes = _minutes(*end) if end is not None else 0
     current = _minutes(now.hour, now.minute)
-    if start is None:
-        return end is None or current <= _minutes(*end)
-    if end is None:
-        return current >= _minutes(*start)
-    start_minutes = _minutes(*start)
-    end_minutes = _minutes(*end)
-    if start_minutes <= end_minutes:
-        return start_minutes <= current <= end_minutes
-    return current >= start_minutes or current <= end_minutes
+    weekday = _homeii_weekday(now)
+    if start_minutes < end_minutes:
+        if not start_minutes <= current < end_minutes:
+            return False
+    elif current < end_minutes:
+        # After midnight in a window that crosses it: the window started yesterday.
+        weekday = (weekday - 1) % 7
+    elif current < start_minutes:
+        return False
+    return not days or weekday in days
 
 
 @dataclass(slots=True)
@@ -752,7 +795,9 @@ class HomeiiScheduleRunner:
                     "maverick_music_flow_schedule_catchup",
                 )
                 return
-            lookup_now = local_now + timedelta(seconds=121)
+            # Past this due window in elapsed time; wall-clock addition is off by the
+            # daylight-saving change.
+            lookup_now = _local_datetime(local_now.astimezone(UTC) + timedelta(seconds=121))
 
         next_run = _next_schedule_datetime(self.schedule, lookup_now, include_due=False)
         if next_run is None:
@@ -7120,10 +7165,8 @@ class HomeiiFlowRuntime:
         if not bool(rule.get("enabled", True)):
             return False
         days = [int(day) for day in _safe_list(rule.get("days")) if str(day).strip()]
-        if days and _homeii_weekday(now) not in days:
-            return False
         return _time_window_active(
-            now, str(rule.get("start_time") or ""), str(rule.get("end_time") or "")
+            now, str(rule.get("start_time") or ""), str(rule.get("end_time") or ""), days
         )
 
     def _preferred_announcement_say_service(self) -> str:
