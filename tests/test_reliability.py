@@ -42,6 +42,7 @@ methods = {
     "_ha_entity_for_ma_player",
     "_normalize_ma_player",
     "_player_readiness",
+    "_ma_players_age",
     "async_players_snapshot",
     "async_play_media",
     "_async_check_play_confirmation",
@@ -102,6 +103,7 @@ namespace = {
     "HomeiiFlowPlaybackUnconfirmed": PlaybackUnconfirmed,
     "_PLAY_VERIFY_POLLS": 20,
     "_PLAY_VERIFY_INTERVAL": 0.4,
+    "_MA_PLAYERS_MAX_AGE": 30,
     "er": SimpleNamespace(async_get=lambda _: registry),
     "home_assistant_base_url": lambda _hass: "",
     "async_validate_media_reference": runpy.run_path(
@@ -128,6 +130,7 @@ class ReliabilityTests(unittest.IsolatedAsyncioTestCase):
         self.runtime.hass = SimpleNamespace(states=SimpleNamespace(get=lambda _: None))
         self.runtime._ma_players_by_entity = {}
         self.runtime._ma_players_by_id = {}
+        self.runtime._ma_players_refreshed_at = time.monotonic()
         self.runtime._ma_http_health = {}
         self.runtime.music_assistant_base_urls = lambda: []
         self.runtime._matching_entry = lambda _instance_id=None: None

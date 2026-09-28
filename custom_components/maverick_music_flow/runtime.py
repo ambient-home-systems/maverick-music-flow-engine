@@ -67,6 +67,17 @@ _PLAY_VERIFY_INTERVAL = 0.4
 # How long unload waits for cancelled tasks, so a stuck task cannot block it.
 SHUTDOWN_TASK_TIMEOUT = 10
 
+# Music Assistant player data older than this many seconds is stale: a schedule readiness
+# check refreshes it first, and readiness falls back to the Home Assistant entity state
+# while it stays stale.
+_MA_PLAYERS_MAX_AGE = 30
+# Player events arriving within this many seconds share one players/all refresh.
+_MA_PLAYERS_EVENT_REFRESH_DELAY = 2.0
+# Longest a readiness check waits for an on-demand player refresh.
+_MA_PLAYERS_REFRESH_TIMEOUT = 10
+# Music Assistant events that change the player catalog.
+_MA_PLAYER_EVENTS = frozenset({"player_added", "player_updated", "player_removed"})
+
 # Most schedule last-run keys kept in storage. There is one per schedule; keys of deleted
 # schedules are dropped when another run is recorded.
 _SCHEDULE_LAST_RUNS_LIMIT = 256
@@ -695,7 +706,7 @@ class HomeiiScheduleActionQueue:
         availability_attempts: list[dict[str, Any]] = []
         try:
             for attempt_index in range(max_attempts):
-                readiness = self.runtime._player_readiness(player)
+                readiness = await self.runtime.async_player_readiness(player)
                 attempt = {
                     "attempt": attempt_index + 1,
                     "at": _utc_iso(),
@@ -1156,6 +1167,10 @@ class HomeiiFlowRuntime:
         self._ma_preferred_base_url = ""
         self._ma_players_by_entity: dict[str, dict[str, Any]] = {}
         self._ma_players_by_id: dict[str, dict[str, Any]] = {}
+        # time.monotonic() of the last successful players/all refresh.
+        self._ma_players_refreshed_at: float | None = None
+        self._ma_players_refresh_task: asyncio.Task[None] | None = None
+        self._ma_players_refresh_again = False
         self._ma_health_probe_task: asyncio.Task[None] | None = None
         self._ma_contract_probe_at = 0.0
         self._ma_contract_checks: dict[str, dict[str, Any]] = {}
@@ -2408,6 +2423,8 @@ class HomeiiFlowRuntime:
         progress_only = False
         if message.get("kind") == "event":
             event_name = _clean_string(message.get("event")).lower()
+            if event_name in _MA_PLAYER_EVENTS:
+                self._schedule_ma_players_refresh(delay=_MA_PLAYERS_EVENT_REFRESH_DELAY, again=True)
             progress_only = any(
                 token in event_name
                 for token in (
@@ -2945,40 +2962,118 @@ class HomeiiFlowRuntime:
             or "unknown field" in message
         )
 
+    def _ma_players_age(self) -> float | None:
+        """Return the age in seconds of the Music Assistant player data, if any."""
+        if self._ma_players_refreshed_at is None:
+            return None
+        return max(0.0, time.monotonic() - self._ma_players_refreshed_at)
+
+    def _schedule_ma_players_refresh(
+        self, *, delay: float = 0.0, again: bool = False
+    ) -> asyncio.Task[None] | None:
+        """Start the one shared players/all refresh, or join the one already running.
+
+        again=True is for player events: a refresh that is already fetching may have read
+        the catalog before the event, so it fetches once more when it finishes.
+        """
+        task = self._ma_players_refresh_task
+        if task is not None and not task.done():
+            if again:
+                self._ma_players_refresh_again = True
+            return task
+        if not self._active:
+            return None
+        self._ma_players_refresh_again = False
+        self._ma_players_refresh_task = self.async_create_tracked_task(
+            self._async_refresh_ma_players(delay), "maverick_music_flow_ma_players_refresh"
+        )
+        return self._ma_players_refresh_task
+
+    async def _async_refresh_ma_players(self, delay: float) -> None:
+        """Refresh the Music Assistant player map until no player event is waiting."""
+        while True:
+            if delay:
+                await asyncio.sleep(delay)
+            self._ma_players_refresh_again = False
+            try:
+                await self.async_players_snapshot()
+            except Exception as err:  # noqa: BLE001 - readiness falls back to HA state
+                _LOGGER.debug("Music Assistant player refresh failed: %s", err)
+                return
+            if not self._ma_players_refresh_again:
+                return
+
+    async def async_player_readiness(self, entity_id: str) -> dict[str, Any]:
+        """Return player readiness, refreshing stale Music Assistant player data first."""
+        age = self._ma_players_age()
+        if (
+            entity_id
+            and (age is None or age > _MA_PLAYERS_MAX_AGE)
+            and self.music_assistant_base_urls()
+            and self.music_assistant_tokens()
+        ):
+            task = self._schedule_ma_players_refresh()
+            if task is not None:
+                # asyncio.wait neither raises nor cancels the shared task on timeout.
+                await asyncio.wait({task}, timeout=_MA_PLAYERS_REFRESH_TIMEOUT)
+        return self._player_readiness(entity_id)
+
     def _player_readiness(self, entity_id: str) -> dict[str, Any]:
-        """Return whether a player entity can be targeted right now."""
+        """Return whether a player entity can be targeted right now.
+
+        Music Assistant player data decides while it is fresh. Once it is older than
+        _MA_PLAYERS_MAX_AGE the Home Assistant entity state decides instead, and every
+        not-ready reason says how old the Music Assistant data is.
+        """
         if not entity_id:
             return {"ready": False, "reason": "player is required"}
         state = self.hass.states.get(entity_id)
         native = self._ma_players_by_entity.get(entity_id) or self._ma_players_by_id.get(entity_id)
-        if native:
+        age = self._ma_players_age()
+        stale = age is None or age > _MA_PLAYERS_MAX_AGE
+        age_note = (
+            "no Music Assistant player data"
+            if age is None
+            else f"Music Assistant player data is {age:.0f}s old"
+        )
+        details = {
+            "entity_id": entity_id,
+            "ma_data_age": None if age is None else round(age, 1),
+            "ma_data_stale": stale,
+        }
+        # A player that only exists in Music Assistant has no HA state to fall back to.
+        if native and (not stale or state is None):
             available = native.get("available") is not False and native.get("state") not in {
                 "unknown",
                 "unavailable",
             }
             return {
                 "ready": available,
-                "reason": "" if available else "Music Assistant player is unavailable",
-                "entity_id": entity_id,
+                "reason": ""
+                if available
+                else f"Music Assistant player is unavailable ({age_note})",
                 "state": native.get("state"),
+                "source": "music_assistant",
+                **details,
             }
+        details["source"] = "home_assistant"
         if state is None:
-            return {"ready": False, "reason": "player entity not found", "entity_id": entity_id}
+            return {"ready": False, "reason": f"player entity not found ({age_note})", **details}
         if str(state.state or "").lower() in {"unknown", "unavailable"}:
             return {
                 "ready": False,
-                "reason": f"player is {state.state}",
-                "entity_id": entity_id,
+                "reason": f"player is {state.state} ({age_note})",
                 "state": state.state,
+                **details,
             }
         if not self.music_assistant_base_urls() or not self.music_assistant_tokens():
             return {
                 "ready": False,
-                "reason": "Music Assistant 2.10 API is not configured",
-                "entity_id": entity_id,
+                "reason": f"Music Assistant 2.10 API is not configured ({age_note})",
                 "state": state.state,
+                **details,
             }
-        return {"ready": True, "entity_id": entity_id, "state": state.state}
+        return {"ready": True, "state": state.state, **details}
 
     def media_players_snapshot(self, *, include_artwork: bool = True) -> list[dict[str, Any]]:
         """Return a lightweight media_player snapshot."""
@@ -3386,6 +3481,7 @@ class HomeiiFlowRuntime:
             for player in players
             if _clean_string(player.get("raw_player_id") or player.get("mass_player_id"))
         }
+        self._ma_players_refreshed_at = time.monotonic()
         raw_by_id = {_clean_string(raw.get("player_id")): raw for raw in resolved_players}
         for player in players:
             native_id = _clean_string(player.get("raw_player_id") or player.get("mass_player_id"))
@@ -4772,7 +4868,7 @@ class HomeiiFlowRuntime:
             attempt_index = 0
             attempt_record: dict[str, Any] = {}
             for attempt_index in range(max_attempts):
-                readiness = self._player_readiness(player)
+                readiness = await self.async_player_readiness(player)
                 attempt_record = {
                     "attempt": attempt_index + 1,
                     "at": _utc_iso(),
