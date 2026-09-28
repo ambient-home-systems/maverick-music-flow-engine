@@ -5606,19 +5606,58 @@ class HomeiiFlowRuntime:
         signature = repr((command.strip().lower(), sorted(args.items(), key=lambda item: item[0])))
         return hashlib.sha256(signature.encode("utf-8")).hexdigest()
 
-    def _finish_media_command_refresh(
-        self,
-        cache_key: str,
-        task: asyncio.Task[dict[str, Any]],
+    @staticmethod
+    def _release_inflight(
+        inflight: dict[Any, asyncio.Task[Any]],
+        key: Any,
+        task: asyncio.Task[Any],
     ) -> None:
-        """Consume a background refresh result and release its singleflight slot."""
-        if self._media_command_inflight.get(cache_key) is task:
-            self._media_command_inflight.pop(cache_key, None)
-        try:
-            task.result()
-        except asyncio.CancelledError:
-            return
-        except Exception:  # noqa: BLE001 - stale data remains valid after refresh failure
+        """Free a finished task's single-flight slot and consume its outcome."""
+        if inflight.get(key) is task:
+            inflight.pop(key, None)
+        if not task.cancelled():
+            # Every caller may have been cancelled; retrieving the error keeps asyncio
+            # from logging "Task exception was never retrieved".
+            task.exception()
+
+    @staticmethod
+    def _running_inflight(
+        inflight: dict[Any, asyncio.Task[Any]],
+        key: Any,
+    ) -> asyncio.Task[Any] | None:
+        """Return the unfinished single-flight task for key, dropping a finished one.
+
+        A finished task stays in the map until its done-callback runs. Its result is
+        already in the cache and its error belongs to the callers that awaited it, so a
+        new caller starts a new request instead.
+        """
+        task = inflight.get(key)
+        if task is not None and task.done():
+            inflight.pop(key, None)
+            return None
+        return task
+
+    def _start_inflight(
+        self,
+        inflight: dict[Any, asyncio.Task[Any]],
+        key: Any,
+        target: Coroutine[Any, Any, Any],
+        name: str,
+    ) -> asyncio.Task[Any]:
+        """Start a tracked single-flight task that frees its slot when it finishes.
+
+        The slot is freed in a done-callback, not in the awaiting caller's ``finally``,
+        so a cancelled caller (an HTTP disconnect, a timeout wrapper) never leaves a
+        task behind whose old result or error later callers would receive.
+        """
+        task = self.async_create_tracked_task(target, name)
+        inflight[key] = task
+        task.add_done_callback(functools.partial(self._release_inflight, inflight, key))
+        return task
+
+    def _count_refresh_failure(self, task: asyncio.Task[Any]) -> None:
+        """Count a failed background refresh; the stale entry stays available."""
+        if not task.cancelled() and task.exception() is not None:
             self._media_cache_metrics["refresh_failures"] += 1
 
     async def async_music_assistant_command(
@@ -5664,8 +5703,10 @@ class HomeiiFlowRuntime:
                     self._media_cache_metrics["command_stale_hits"] = (
                         int(self._media_cache_metrics.get("command_stale_hits") or 0) + 1
                     )
-                    if cache_key not in self._media_command_inflight:
-                        task = self.async_create_tracked_task(
+                    if self._running_inflight(self._media_command_inflight, cache_key) is None:
+                        task = self._start_inflight(
+                            self._media_command_inflight,
+                            cache_key,
                             self.async_music_assistant_command(
                                 payload,
                                 cache_worker=True,
@@ -5673,19 +5714,18 @@ class HomeiiFlowRuntime:
                             ),
                             "maverick_music_flow_media_command_refresh",
                         )
-                        self._media_command_inflight[cache_key] = task
-                        task.add_done_callback(
-                            functools.partial(self._finish_media_command_refresh, cache_key)
-                        )
+                        task.add_done_callback(self._count_refresh_failure)
                     return copy.deepcopy(cached["result"])
-            inflight = self._media_command_inflight.get(cache_key)
+            inflight = self._running_inflight(self._media_command_inflight, cache_key)
             if inflight is not None:
                 self._media_cache_metrics["coalesced"] += 1
                 return copy.deepcopy(await asyncio.shield(inflight))
             self._media_cache_metrics["command_misses"] = (
                 int(self._media_cache_metrics.get("command_misses") or 0) + 1
             )
-            task = self.async_create_tracked_task(
+            task = self._start_inflight(
+                self._media_command_inflight,
+                cache_key,
                 self.async_music_assistant_command(
                     payload,
                     cache_worker=True,
@@ -5693,12 +5733,7 @@ class HomeiiFlowRuntime:
                 ),
                 "maverick_music_flow_media_command",
             )
-            self._media_command_inflight[cache_key] = task
-            try:
-                return copy.deepcopy(await asyncio.shield(task))
-            finally:
-                if self._media_command_inflight.get(cache_key) is task:
-                    self._media_command_inflight.pop(cache_key, None)
+            return copy.deepcopy(await asyncio.shield(task))
         realtime = self._music_assistant_client.snapshot()
         if not realtime.get("authenticated") or not realtime.get("schema_supported"):
             raise HomeiiFlowServiceUnavailable(
@@ -6380,22 +6415,16 @@ class HomeiiFlowRuntime:
                 response = copy.deepcopy(cached["result"])
                 response["cache"] = {"hit": True, "source": "engine_queue_memory", "ttl": 2}
                 return response
-            existing_task = self._queue_inflight.get(cache_key)
+            existing_task = self._running_inflight(self._queue_inflight, cache_key)
             if existing_task is not None:
                 return copy.deepcopy(await asyncio.shield(existing_task))
-            foreground_task = self.async_create_tracked_task(
+            foreground_task = self._start_inflight(
+                self._queue_inflight,
+                cache_key,
                 self.async_get_queue({**payload, "_singleflight_owner": True}),
                 "maverick_music_flow_queue",
             )
-            self._queue_inflight[cache_key] = foreground_task
-            try:
-                return copy.deepcopy(await asyncio.shield(foreground_task))
-            finally:
-                if (
-                    self._queue_inflight.get(cache_key) is foreground_task
-                    and foreground_task.done()
-                ):
-                    self._queue_inflight.pop(cache_key, None)
+            return copy.deepcopy(await asyncio.shield(foreground_task))
         bridge_results = await self._try_music_queue_command_bridge(
             entity_id=entity_id,
             queue_id=queue_id,
@@ -6557,29 +6586,24 @@ class HomeiiFlowRuntime:
                 )
             if isinstance(cached_result, dict) and float(cached.get("stale_until") or 0) > now_mono:
                 self._media_cache_metrics["stale_hits"] += 1
-                if resolved_cache_key not in self._library_inflight:
+                if self._running_inflight(self._library_inflight, resolved_cache_key) is None:
                     self._media_cache_metrics["background_refreshes"] += 1
-                    refresh_task = self.async_create_tracked_task(
+                    # Refresh the entry that was served, which may be a larger shelf, so
+                    # the fetch writes the key its single-flight slot is registered under.
+                    refresh_task = self._start_inflight(
+                        self._library_inflight,
+                        resolved_cache_key,
                         self.async_get_library(
                             {
                                 **payload,
+                                "limit": resolved_cache_key[2],
                                 "_refresh": True,
                                 "_singleflight_owner": True,
                             }
                         ),
                         "maverick_music_flow_library_refresh",
                     )
-                    self._library_inflight[resolved_cache_key] = refresh_task
-
-                    def finish_refresh(task: asyncio.Task[dict[str, Any]]) -> None:
-                        if self._library_inflight.get(resolved_cache_key) is task:
-                            self._library_inflight.pop(resolved_cache_key, None)
-                        try:
-                            task.result()
-                        except Exception:  # noqa: BLE001 - stale data remains available
-                            self._media_cache_metrics["refresh_failures"] += 1
-
-                    refresh_task.add_done_callback(finish_refresh)
+                    refresh_task.add_done_callback(self._count_refresh_failure)
                 return self._library_response(
                     cached_result
                     | {
@@ -6596,12 +6620,14 @@ class HomeiiFlowRuntime:
                     compact=compact_requested,
                 )
         if not singleflight_owner:
-            existing_task = self._library_inflight.get(cache_key)
+            existing_task = self._running_inflight(self._library_inflight, cache_key)
             if existing_task is not None:
                 self._media_cache_metrics["coalesced"] += 1
                 return await asyncio.shield(existing_task)
             self._media_cache_metrics["misses"] += 1
-            foreground_task = self.async_create_tracked_task(
+            foreground_task = self._start_inflight(
+                self._library_inflight,
+                cache_key,
                 self.async_get_library(
                     {
                         **payload,
@@ -6611,15 +6637,7 @@ class HomeiiFlowRuntime:
                 ),
                 "maverick_music_flow_library",
             )
-            self._library_inflight[cache_key] = foreground_task
-            try:
-                return await asyncio.shield(foreground_task)
-            finally:
-                if (
-                    self._library_inflight.get(cache_key) is foreground_task
-                    and foreground_task.done()
-                ):
-                    self._library_inflight.pop(cache_key, None)
+            return await asyncio.shield(foreground_task)
         fetch_started = time.perf_counter()
         fetch_revision = self._snapshot_revisions["library"]
         (

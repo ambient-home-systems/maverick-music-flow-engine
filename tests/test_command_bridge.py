@@ -278,7 +278,10 @@ def load_runtime_command_method():
         "async_music_assistant_command",
         "_music_assistant_command_cacheable",
         "_music_assistant_command_cache_key",
-        "_finish_media_command_refresh",
+        "_release_inflight",
+        "_running_inflight",
+        "_start_inflight",
+        "_count_refresh_failure",
         "_async_validate_media_reference",
         "local_media_urls_allowed",
         "async_create_tracked_task",
@@ -425,6 +428,63 @@ class RuntimeCommandTests(IsolatedAsyncioTestCase):
         await runtime._media_command_inflight[key]
         runtime._music_assistant_client.async_command.assert_awaited_once()
         self.assertEqual(runtime._media_command_cache[key]["result"]["data"], {"name": "fresh"})
+
+    async def test_cancelled_caller_keeps_coalescing_and_frees_the_slot_when_done(self):
+        runtime = self.runtime()
+        release = asyncio.Event()
+        started = asyncio.Event()
+
+        async def slow_command(*_args, **_kwargs):
+            started.set()
+            await release.wait()
+            return {"name": "fresh"}
+
+        runtime._music_assistant_client.async_command = AsyncMock(side_effect=slow_command)
+        payload = {"command": "music/item_by_uri", "args": {"uri": "library://track/5"}}
+        first = asyncio.create_task(runtime.async_music_assistant_command(dict(payload)))
+        await started.wait()
+        first.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await first
+        # The request keeps running for the next caller instead of being started twice.
+        second = asyncio.create_task(runtime.async_music_assistant_command(dict(payload)))
+        await asyncio.sleep(0)
+        release.set()
+        self.assertEqual((await second)["data"], {"name": "fresh"})
+        await asyncio.sleep(0)
+        runtime._music_assistant_client.async_command.assert_awaited_once()
+        self.assertEqual(runtime._media_command_inflight, {})
+
+    async def test_failed_request_is_not_reused_after_its_caller_was_cancelled(self):
+        runtime = self.runtime()
+        release = asyncio.Event()
+        started = asyncio.Event()
+        outcomes = [RuntimeError("MA went away"), {"name": "fresh"}]
+
+        async def command(*_args, **_kwargs):
+            started.set()
+            await release.wait()
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        runtime._music_assistant_client.async_command = AsyncMock(side_effect=command)
+        payload = {"command": "music/item_by_uri", "args": {"uri": "library://track/6"}}
+        first = asyncio.create_task(runtime.async_music_assistant_command(dict(payload)))
+        await started.wait()
+        first.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await first
+        (inflight,) = runtime._media_command_inflight.values()
+        release.set()
+        await asyncio.wait({inflight})
+        await asyncio.sleep(0)
+        self.assertEqual(runtime._media_command_inflight, {})
+
+        result = await runtime.async_music_assistant_command(dict(payload))
+        self.assertEqual(result["data"], {"name": "fresh"})
+        self.assertEqual(runtime._music_assistant_client.async_command.await_count, 2)
 
 
 class HTTPError(Exception):

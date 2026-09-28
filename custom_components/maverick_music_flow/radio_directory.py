@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import functools
 import time
 
 from aiohttp import ClientTimeout
@@ -84,14 +85,24 @@ async def search_stations(runtime, payload):
             cache.pop(next(iter(cache)))
         return data[:limit]
 
-    if key not in runtime._radio_directory_pending:
-        runtime._radio_directory_pending[key] = runtime.async_create_tracked_task(
-            fetch(), "maverick_music_flow_radio_directory"
-        )
-    task = runtime._radio_directory_pending[key]
-    try:
-        data = await asyncio.shield(task)
-        return station_items(runtime, data)
-    finally:
-        if task.done():
-            runtime._radio_directory_pending.pop(key, None)
+    pending = runtime._radio_directory_pending
+    task = pending.get(key)
+    if task is None or task.done():
+        # A finished search is never joined: its stations are in the cache and its
+        # error belongs to the callers that awaited it.
+        task = runtime.async_create_tracked_task(fetch(), "maverick_music_flow_radio_directory")
+        pending[key] = task
+        # Freed when the search finishes, not in the caller's finally, so a cancelled
+        # caller cannot leave a finished search behind for the next one.
+        task.add_done_callback(functools.partial(_release_pending, pending, key))
+    data = await asyncio.shield(task)
+    return station_items(runtime, data)
+
+
+def _release_pending(pending, key, task):
+    if pending.get(key) is task:
+        pending.pop(key, None)
+    if not task.cancelled():
+        # Every caller may have been cancelled; retrieving the error keeps asyncio from
+        # logging "Task exception was never retrieved".
+        task.exception()
