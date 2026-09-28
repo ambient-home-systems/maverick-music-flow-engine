@@ -140,7 +140,7 @@ class HomeiiFlowScheduleCalendar(CalendarEntity):
         events: list[CalendarEvent] = []
         for schedule in self._runtime.schedules(profile_id):
             events.extend(self._schedule_events(schedule, start, end, limit))
-        events.sort(key=lambda event: _instant(event.start))
+        events.sort(key=lambda event: _instant(event.start_datetime_local))
         return events[:limit]
 
     def _schedule_events(
