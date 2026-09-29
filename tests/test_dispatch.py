@@ -339,7 +339,7 @@ class ScheduleExecutionTests(unittest.IsolatedAsyncioTestCase):
             schedules=lambda: [r.schedule],
             _schedule_unsubs={},
             _storage={},
-            _store=SimpleNamespace(async_save=AsyncMock()),
+            _async_write_storage=AsyncMock(),
             hass=object(),
         )
         r.runtime._record_schedule_run = lambda key, run_key: r.runtime._last_schedule_runs.update(

@@ -30,6 +30,7 @@ from .const import (
     SIGNAL_ENGINE_UPDATED,
     VERSION,
 )
+from .entity_attributes import UNRECORDED_ATTRIBUTES, stable_attributes
 from .runtime import HomeiiFlowRuntime
 
 
@@ -160,6 +161,7 @@ class HomeiiFlowBinarySensor(BinarySensorEntity):
 
     entity_description: HomeiiFlowBinarySensorDescription
     _attr_has_entity_name = True
+    _unrecorded_attributes = UNRECORDED_ATTRIBUTES
 
     def __init__(
         self,
@@ -205,4 +207,4 @@ class HomeiiFlowBinarySensor(BinarySensorEntity):
         """Return sensor attributes."""
         if self.entity_description.attrs_fn is None:
             return None
-        return self.entity_description.attrs_fn(self._runtime, self._entry)
+        return stable_attributes(self.entity_description.attrs_fn(self._runtime, self._entry))

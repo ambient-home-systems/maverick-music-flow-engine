@@ -17,6 +17,7 @@ from homeassistant.helpers.typing import UNDEFINED
 
 from . import async_get_runtime
 from .const import CONF_INSTANCE_ID, CONF_PROFILE_ID, DOMAIN, NAME, SIGNAL_ENGINE_UPDATED, VERSION
+from .entity_attributes import UNRECORDED_ATTRIBUTES, stable_attributes, status_attributes
 from .runtime import HomeiiFlowRuntime
 
 
@@ -26,7 +27,6 @@ class HomeiiFlowSensorDescription(SensorEntityDescription):
 
     value_fn: Callable[[HomeiiFlowRuntime, ConfigEntry], Any]
     attrs_fn: Callable[[HomeiiFlowRuntime, ConfigEntry], dict[str, Any]] | None = None
-    force_update: bool = False
 
 
 def _profile_id(entry: ConfigEntry) -> str:
@@ -47,14 +47,12 @@ SENSORS: tuple[HomeiiFlowSensorDescription, ...] = (
         name="Status",
         icon="mdi:engine",
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda runtime, entry: (
-            "connected"
-            if runtime.context(instance_id=entry.data.get(CONF_INSTANCE_ID)).get("available")
-            else "unknown"
-        ),
-        attrs_fn=lambda runtime, entry: runtime.context(
-            instance_id=entry.data.get(CONF_INSTANCE_ID),
-            profile_id=_profile_id(entry),
+        value_fn=lambda runtime, entry: "connected" if runtime.active else "unknown",
+        attrs_fn=lambda runtime, entry: status_attributes(
+            runtime.context(
+                instance_id=entry.data.get(CONF_INSTANCE_ID),
+                profile_id=_profile_id(entry),
+            )
         ),
     ),
     HomeiiFlowSensorDescription(
@@ -276,7 +274,6 @@ SENSORS: tuple[HomeiiFlowSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda runtime, entry: runtime.playback_statistics().get("today_minutes", 0),
         attrs_fn=lambda runtime, entry: runtime.playback_statistics(),
-        force_update=True,
     ),
     HomeiiFlowSensorDescription(
         key="playback_sessions_today",
@@ -289,7 +286,6 @@ SENSORS: tuple[HomeiiFlowSensorDescription, ...] = (
             "players_today": runtime.playback_statistics().get("players_today", []),
             "top_player_today": runtime.playback_statistics().get("top_player_today", {}),
         },
-        force_update=True,
     ),
     HomeiiFlowSensorDescription(
         key="top_player_today",
@@ -299,7 +295,6 @@ SENSORS: tuple[HomeiiFlowSensorDescription, ...] = (
             runtime.playback_statistics().get("top_player_today", {}).get("friendly_name") or "none"
         ),
         attrs_fn=lambda runtime, entry: runtime.playback_statistics().get("top_player_today", {}),
-        force_update=True,
     ),
     HomeiiFlowSensorDescription(
         key="screensaver_recommendation",
@@ -326,6 +321,7 @@ class HomeiiFlowSensor(SensorEntity):
 
     entity_description: HomeiiFlowSensorDescription
     _attr_has_entity_name = True
+    _unrecorded_attributes = UNRECORDED_ATTRIBUTES
 
     def __init__(
         self,
@@ -340,7 +336,6 @@ class HomeiiFlowSensor(SensorEntity):
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
         if description.name is not UNDEFINED:
             self._attr_name = description.name
-        self._attr_force_update = description.force_update
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to runtime storage and orchestration updates."""
@@ -372,4 +367,4 @@ class HomeiiFlowSensor(SensorEntity):
         """Return sensor attributes."""
         if self.entity_description.attrs_fn is None:
             return None
-        return self.entity_description.attrs_fn(self._runtime, self._entry)
+        return stable_attributes(self.entity_description.attrs_fn(self._runtime, self._entry))

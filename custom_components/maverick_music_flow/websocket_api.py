@@ -112,6 +112,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_set_artwork_lighting)
     websocket_api.async_register_command(hass, websocket_radio_search)
     websocket_api.async_register_command(hass, websocket_get_context)
+    websocket_api.async_register_command(hass, websocket_subscribe_events)
     websocket_api.async_register_command(hass, websocket_get_bootstrap)
     websocket_api.async_register_command(hass, websocket_get_required_connections)
     websocket_api.async_register_command(hass, websocket_run_diagnostics)
@@ -167,6 +168,33 @@ def websocket_get_context(
         profile_id=msg.get(CONF_PROFILE_ID),
     )
     connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "maverick_music_flow/events/subscribe", **BASE_SCHEMA}
+)
+@callback
+def websocket_subscribe_events(
+    hass: HomeAssistant, connection: ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Stream Music Assistant events to this connection until it unsubscribes.
+
+    Each event carries the same data as the maverick_music_flow_music_assistant_event
+    bus event. Unlike the bus, this also delivers playback progress events (for example
+    queue_time_updated) and is not rate limited.
+    """
+    if not _authorize(hass, connection, msg):
+        return
+    msg_id = msg["id"]
+
+    @callback
+    def forward(message: dict[str, Any]) -> None:
+        connection.send_message(websocket_api.event_message(msg_id, message))
+
+    connection.subscriptions[msg_id] = _runtime(hass).async_subscribe_music_assistant_events(
+        forward
+    )
+    connection.send_result(msg_id)
 
 
 @websocket_api.websocket_command(

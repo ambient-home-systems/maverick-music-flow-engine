@@ -11,6 +11,7 @@ DOMAIN = "maverick_music_flow"
 COMMANDS = {
     "maverick_music_flow/bootstrap/get",
     "maverick_music_flow/get_context",
+    "maverick_music_flow/events/subscribe",
     "maverick_music_flow/diagnostics/run",
     "maverick_music_flow/stats/get",
     "maverick_music_flow/playback_stats/get",

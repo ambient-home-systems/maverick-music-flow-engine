@@ -13,6 +13,7 @@ from conftest import (
     MA_TOKEN,
     FakeCommandError,
     FakeMusicAssistant,
+    engine_runtime,
 )
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -95,7 +96,35 @@ async def test_get_context(admin_ws: MockHAClientWebSocket, loaded_entry: MockCo
     assert not missing, f"card-facing capabilities dropped or disabled: {sorted(missing)}"
     assert [entry["entry_id"] for entry in result["entries"]] == [loaded_entry.entry_id]
     assert result["music_assistant"]["authenticated"] is True
+    # The sensors drop these; the card still gets them here.
+    assert result["generated_at"]
+    assert result["required_connections"]["generated_at"]
     assert MA_TOKEN not in json.dumps(result)
+
+
+async def test_events_subscribe_streams_progress_events(
+    hass: HomeAssistant, kitchen_ws: MockHAClientWebSocket, fake_ma: FakeMusicAssistant
+) -> None:
+    """Any user can subscribe; progress events, which skip the bus, arrive here (B-7a)."""
+    runtime = engine_runtime(hass)
+    await kitchen_ws.send_json_auto_id({"type": f"{DOMAIN}/events/subscribe"})
+    response = await kitchen_ws.receive_json()
+    assert response["success"], response
+    subscription = response["id"]
+
+    await fake_ma.async_send_event("queue_time_updated", object_id=KITCHEN_ID)
+    message = await kitchen_ws.receive_json()
+    while message["event"].get("kind") != "event":
+        message = await kitchen_ws.receive_json()  # The startup connection status.
+    assert message["id"] == subscription
+    assert message["type"] == "event"
+    assert message["event"]["event"] == "queue_time_updated"
+    assert message["event"]["object_id"] == KITCHEN_ID
+    assert MA_TOKEN not in json.dumps(message)
+
+    await kitchen_ws.send_json_auto_id({"type": "unsubscribe_events", "subscription": subscription})
+    assert (await kitchen_ws.receive_json())["success"]
+    assert not runtime._ma_event_listeners
 
 
 async def test_bootstrap_and_players(admin_ws: MockHAClientWebSocket) -> None:
