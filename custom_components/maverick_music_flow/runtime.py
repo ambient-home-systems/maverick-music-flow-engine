@@ -33,7 +33,8 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .artwork_lighting import ArtworkLighting
-from .artwork_proxy import home_assistant_base_url, normalize_image_type
+from .artwork_proxy import MAX_ARTWORK_BYTES, home_assistant_base_url, normalize_image_type
+from .bounded_cache import BoundedCache, estimate_json_size
 from .command_bridge import music_assistant_command_allowed
 from .const import (
     CAPABILITIES,
@@ -85,6 +86,19 @@ _SCHEDULE_LAST_RUNS_LIMIT = 256
 # Opaque artwork tokens slide on every use. The Engine's own detail cache serves stale
 # responses for up to 24 hours, so tokens outlive the longest cached response.
 ARTWORK_TOKEN_LIFETIME = 48 * 60 * 60
+
+# Limits of the in-memory caches. Byte limits are approximate: each entry counts as the
+# length of its JSON text (artwork as its raw bytes), which is well below its memory use.
+LIBRARY_CACHE_MAX_ENTRIES = 64
+LIBRARY_CACHE_MAX_BYTES = 24 * 1024 * 1024
+SEARCH_CACHE_MAX_ENTRIES = 64
+SEARCH_CACHE_MAX_BYTES = 8 * 1024 * 1024
+ARTWORK_CONTENT_CACHE_MAX_ENTRIES = 192
+ARTWORK_CONTENT_CACHE_MAX_BYTES = 64 * 1024 * 1024
+ARTWORK_CONTENT_CACHE_TTL = 30 * 60
+ARTWORK_TOKEN_MAX_ENTRIES = 5000
+# The token map only scans for expired tokens this often (or when it is over its limit).
+ARTWORK_TOKEN_PURGE_INTERVAL = 60.0
 
 
 def _utc_iso() -> str:
@@ -1128,12 +1142,29 @@ class HomeiiFlowRuntime:
         self._playback_stats_dirty = False
         self._playback_stats_active_entities: set[str] = set()
         self._playback_stats_is_syncing = False
-        self._artwork_sources: dict[str, tuple[str, float]] = {}
+        # token -> (source, expires_at). Least recently used tokens are evicted first.
+        self._artwork_sources: BoundedCache[str, tuple[str, float]] = BoundedCache(
+            max_entries=ARTWORK_TOKEN_MAX_ENTRIES,
+            expires_at=lambda entry: entry[1],
+            on_evict=self._forget_artwork_token,
+            purge_interval=ARTWORK_TOKEN_PURGE_INTERVAL,
+        )
         self._artwork_source_tokens: dict[str, str] = {}
-        self._artwork_content_cache: dict[str, tuple[float, bytes, str]] = {}
+        # source -> (expires_at, body, content_type)
+        self._artwork_content_cache: BoundedCache[str, tuple[float, bytes, str]] = BoundedCache(
+            max_entries=ARTWORK_CONTENT_CACHE_MAX_ENTRIES,
+            max_bytes=ARTWORK_CONTENT_CACHE_MAX_BYTES,
+            expires_at=lambda entry: entry[0],
+            sizeof=lambda entry: len(entry[1]),
+        )
         # Replaced by the persisted secret in async_load; never left unkeyed.
         self._artwork_token_secret: bytes = secrets.token_bytes(32)
-        self._library_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+        self._library_cache: BoundedCache[tuple[Any, ...], dict[str, Any]] = BoundedCache(
+            max_entries=LIBRARY_CACHE_MAX_ENTRIES,
+            max_bytes=LIBRARY_CACHE_MAX_BYTES,
+            expires_at=lambda entry: float(entry.get("stale_until") or 0),
+            sizeof=lambda entry: estimate_json_size(entry.get("result")),
+        )
         self._library_inflight: dict[tuple[Any, ...], asyncio.Task[dict[str, Any]]] = {}
         self._queue_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
         self._queue_inflight: dict[tuple[Any, ...], asyncio.Task[dict[str, Any]]] = {}
@@ -1155,7 +1186,14 @@ class HomeiiFlowRuntime:
             "last_fetch_at": "",
             "last_persist_at": "",
         }
-        self._search_cache: dict[tuple[Any, ...], tuple[float, dict[str, Any]]] = {}
+        # search key -> (expires_at, result)
+        self._search_cache: BoundedCache[tuple[Any, ...], tuple[float, dict[str, Any]]]
+        self._search_cache = BoundedCache(
+            max_entries=SEARCH_CACHE_MAX_ENTRIES,
+            max_bytes=SEARCH_CACHE_MAX_BYTES,
+            expires_at=lambda entry: entry[0],
+            sizeof=lambda entry: estimate_json_size(entry[1]),
+        )
         self._provider_ids_cache: tuple[float, list[str]] = (0.0, [])
         self._ma_http_health: dict[str, Any] = {
             "connected": False,
@@ -1268,6 +1306,12 @@ class HomeiiFlowRuntime:
         self._storage["artwork_token_secret"] = clean
         return True
 
+    def _forget_artwork_token(self, token: Any, entry: Any, reason: str) -> None:
+        """Drop the source -> token shortcut of a token the cache evicted."""
+        source = entry[0]
+        if source and self._artwork_source_tokens.get(source) == token:
+            self._artwork_source_tokens.pop(source, None)
+
     def register_artwork_source(self, source: Any) -> str:
         """Register an artwork source and return an opaque, HA-local URL.
 
@@ -1286,35 +1330,19 @@ class HomeiiFlowRuntime:
                 clean.encode("utf-8"), key=self._artwork_token_secret, digest_size=18
             ).hexdigest()
             self._artwork_source_tokens[clean] = token
+        # Storing marks the token most recently used and evicts expired, then least
+        # recently used, tokens once the map is over its limit.
         self._artwork_sources[token] = (clean, time.monotonic() + ARTWORK_TOKEN_LIFETIME)
-        if len(self._artwork_sources) > 5000:
-            now = time.monotonic()
-            expired = [
-                key for key, (_, expires_at) in self._artwork_sources.items() if expires_at <= now
-            ]
-            for key in expired:
-                expired_source = self._artwork_sources.pop(key, ("", 0))[0]
-                if expired_source and self._artwork_source_tokens.get(expired_source) == key:
-                    self._artwork_source_tokens.pop(expired_source, None)
-            while len(self._artwork_sources) > 5000:
-                oldest = next(iter(self._artwork_sources))
-                oldest_source = self._artwork_sources.pop(oldest)[0]
-                if self._artwork_source_tokens.get(oldest_source) == oldest:
-                    self._artwork_source_tokens.pop(oldest_source, None)
         return f"/api/maverick_music_flow/artwork/item/{token}"
 
     def resolve_artwork_source(self, token: str) -> str:
         """Resolve a previously registered artwork token."""
         clean_token = str(token or "").strip()
+        # get() drops an expired token and marks a live one most recently used.
         entry = self._artwork_sources.get(clean_token)
         if not entry:
             return ""
-        source, expires_at = entry
-        if expires_at <= time.monotonic():
-            self._artwork_sources.pop(clean_token, None)
-            if self._artwork_source_tokens.get(source) == clean_token:
-                self._artwork_source_tokens.pop(source, None)
-            return ""
+        source = entry[0]
         self._artwork_sources[clean_token] = (source, time.monotonic() + ARTWORK_TOKEN_LIFETIME)
         return source
 
@@ -1324,33 +1352,25 @@ class HomeiiFlowRuntime:
         entry = self._artwork_content_cache.get(clean)
         if not entry:
             return None
-        expires_at, body, content_type = entry
-        if expires_at <= time.monotonic():
-            self._artwork_content_cache.pop(clean, None)
-            return None
+        _, body, content_type = entry
         return body, content_type
 
     def cache_artwork_content(self, source: str, body: bytes, content_type: str) -> None:
         """Keep a bounded in-memory cache for queue and library artwork.
 
         Only content that passed the artwork proxy's validation is cached: the image type
-        must be one the proxy is allowed to serve.
+        must be one the proxy is allowed to serve. The cache holds at most
+        ARTWORK_CONTENT_CACHE_MAX_BYTES of image data and evicts the least recently used.
         """
         clean = str(source or "").strip()
         clean_type = normalize_image_type(content_type)
-        if not clean or not clean_type or not body or len(body) > 5 * 1024 * 1024:
+        if not clean or not clean_type or not body or len(body) > MAX_ARTWORK_BYTES:
             return
-        now = time.monotonic()
-        self._artwork_content_cache[clean] = (now + 30 * 60, body, clean_type)
-        expired = [
-            key
-            for key, (expires_at, _, _) in self._artwork_content_cache.items()
-            if expires_at <= now
-        ]
-        for key in expired:
-            self._artwork_content_cache.pop(key, None)
-        while len(self._artwork_content_cache) > 192:
-            self._artwork_content_cache.pop(next(iter(self._artwork_content_cache)))
+        self._artwork_content_cache[clean] = (
+            time.monotonic() + ARTWORK_CONTENT_CACHE_TTL,
+            body,
+            clean_type,
+        )
 
     @staticmethod
     def _looks_like_artwork_source(value: Any, *, key: str = "") -> bool:
@@ -1804,7 +1824,7 @@ class HomeiiFlowRuntime:
         now_epoch = time.time()
         now_mono = time.monotonic()
         restored_count = 0
-        for entry in entries[:80]:
+        for entry in entries[:LIBRARY_CACHE_MAX_ENTRIES]:
             if not isinstance(entry, dict):
                 continue
             key_parts = entry.get("key")
@@ -1983,6 +2003,12 @@ class HomeiiFlowRuntime:
             ),
             "fresh_ttl_seconds": 600,
             "stale_ttl_seconds": 86400,
+            "memory_caches": {
+                "library": self._library_cache.stats(),
+                "search": self._search_cache.stats(),
+                "artwork_content": self._artwork_content_cache.stats(),
+                "artwork_tokens": self._artwork_sources.stats(),
+            },
         }
 
     def _schedule_media_cache_warm(self) -> None:
@@ -6499,7 +6525,9 @@ class HomeiiFlowRuntime:
         ]
         if not compatible:
             return cache_key, None
-        return min(compatible, key=lambda item: int(item[0][2]))
+        best_key, best = min(compatible, key=lambda item: int(item[0][2]))
+        # get() marks the shelf that is served as recently used.
+        return best_key, self._library_cache.get(best_key, best)
 
     def _library_response(
         self,

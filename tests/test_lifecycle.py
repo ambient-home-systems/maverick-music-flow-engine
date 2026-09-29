@@ -14,6 +14,7 @@ import copy
 import importlib
 import logging
 import sys
+import time
 import types
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -707,7 +708,7 @@ class UnloadTests(LifecycleTestCase):
         runtime = self.runtime()
         runtime._library_cache[("playlist", "", 60, False, "", 0)] = {
             "fresh_until": 0.0,
-            "stale_until": 0.0,
+            "stale_until": time.monotonic() + 3600,
             "stored_at": 1.0,
             "result": {"items": []},
         }
@@ -772,6 +773,77 @@ class UnloadTests(LifecycleTestCase):
         self.assertEqual(runtime.entries, [])
         self.assertEqual(HANDLES.active(), [])
         self.assertEqual(self.hass.session.open_connections, 0)
+
+
+class MemoryCacheTests(LifecycleTestCase):
+    """The library, search and artwork caches of the real runtime are bounded."""
+
+    def library_entry(self, size: int = 1) -> dict[str, Any]:
+        return {
+            "fresh_until": time.monotonic() + 600,
+            "stale_until": time.monotonic() + 3600,
+            "stored_at": time.time(),
+            "result": {"items": [{"name": "x" * size}]},
+        }
+
+    async def test_library_cache_evicts_least_recently_used_past_64_entries(self) -> None:
+        await self.setup_entry()
+        cache = self.runtime()._library_cache
+        self.assertEqual(cache.max_entries, 64)
+        for offset in range(64):
+            cache[("playlist", "", 50, False, "q", offset)] = self.library_entry()
+        first = ("playlist", "", 50, False, "q", 0)
+        self.assertIsNotNone(cache.get(first))  # used again, so offset 1 is now the oldest
+        cache[("playlist", "", 50, False, "q", 64)] = self.library_entry()
+        self.assertEqual(len(cache), 64)
+        self.assertNotIn(("playlist", "", 50, False, "q", 1), cache)
+        self.assertIn(first, cache)
+
+    async def test_library_cache_drops_stale_entries_and_respects_the_byte_limit(self) -> None:
+        await self.setup_entry()
+        cache = self.runtime()._library_cache
+        expired = self.library_entry()
+        expired["stale_until"] = time.monotonic() - 1
+        cache[("playlist", "", 50, False, "old", 0)] = expired
+        cache[("playlist", "", 50, False, "new", 0)] = self.library_entry()
+        self.assertNotIn(("playlist", "", 50, False, "old", 0), cache)
+        big = cache.max_bytes // 2 + 1
+        cache[("album", "", 50, False, "a", 0)] = self.library_entry(big)
+        cache[("album", "", 50, False, "b", 0)] = self.library_entry(big)
+        self.assertLessEqual(cache.total_bytes, cache.max_bytes)
+        self.assertNotIn(("album", "", 50, False, "a", 0), cache)
+        self.assertIn(("album", "", 50, False, "b", 0), cache)
+
+    async def test_search_cache_is_bounded_while_typing(self) -> None:
+        await self.setup_entry()
+        cache = self.runtime()._search_cache
+        self.assertEqual(cache.max_entries, 64)
+        for index in range(200):
+            cache[(f"query {index}", 20)] = (time.monotonic() + 30, {"items": []})
+        self.assertEqual(len(cache), 64)
+        self.assertIn(("query 199", 20), cache)
+        self.assertNotIn(("query 0", 20), cache)
+
+    async def test_artwork_caches_have_the_documented_limits(self) -> None:
+        await self.setup_entry()
+        runtime = self.runtime()
+        self.assertEqual(runtime._artwork_content_cache.max_bytes, 64 * 1024 * 1024)
+        self.assertEqual(runtime._artwork_sources.max_entries, 5000)
+
+    async def test_cache_sizes_are_reported_in_stats(self) -> None:
+        await self.setup_entry()
+        runtime = self.runtime()
+        runtime._library_cache[("playlist", "", 50, False, "", 0)] = self.library_entry()
+        runtime.register_artwork_source("http://radio.test/logo.png")
+        caches = runtime.library_cache_status()["memory_caches"]
+        self.assertEqual(set(caches), {"library", "search", "artwork_content", "artwork_tokens"})
+        self.assertEqual(caches["library"]["entries"], 1)
+        self.assertGreater(caches["library"]["bytes"], 0)
+        self.assertEqual(caches["library"]["max_entries"], 64)
+        self.assertEqual(caches["artwork_tokens"]["entries"], 1)
+        self.assertEqual(caches["artwork_content"]["max_bytes"], 64 * 1024 * 1024)
+        limits = runtime._music_assistant_client.snapshot()["limits"]
+        self.assertEqual(limits["max_message_bytes"], 64 * 1024 * 1024)
 
 
 class ReloadTests(LifecycleTestCase):

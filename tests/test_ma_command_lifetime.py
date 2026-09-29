@@ -35,6 +35,7 @@ class CommandLifetimeTests(IsolatedAsyncioTestCase):
         self.client._send_lock = asyncio.Lock()
         self.client._pending_commands = {}
         self.client._partial_results = {}
+        self.client._partial_sizes = {}
 
     async def test_lock_wait_respects_deadline_without_sending(self):
         await self.client._send_lock.acquire()

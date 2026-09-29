@@ -10,11 +10,21 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from aiohttp import ClientSession, ClientWebSocketResponse, WSMsgType
+from aiohttp import ClientSession, ClientWebSocketResponse, WSCloseCode, WSMsgType
 
 from .const import MUSIC_ASSISTANT_SCHEMA_MIN, MUSIC_ASSISTANT_SCHEMA_VALIDATED
 
 _LOGGER = logging.getLogger(__name__)
+
+# Largest single WebSocket message accepted from Music Assistant. A page of 500 library
+# items or a queue page is a few megabytes of JSON, so this leaves a wide margin while
+# still stopping a runaway or hostile server. A larger message closes the socket (code
+# 1009) and fails the commands waiting on it; the connection then retries as usual.
+MAX_MESSAGE_SIZE = 64 * 1024 * 1024
+# Most a chunked ("partial") response may accumulate for one command: items and raw
+# message bytes. Going over fails that command; the connection stays up.
+MAX_PARTIAL_ITEMS = 100_000
+MAX_PARTIAL_BYTES = 64 * 1024 * 1024
 
 
 def _websocket_url(base_url: str) -> str:
@@ -57,6 +67,10 @@ class MusicAssistantEventClient:
         self._event_count = 0
         self._pending_commands: dict[str, asyncio.Future[Any]] = {}
         self._partial_results: dict[str, list[Any]] = {}
+        self._partial_sizes: dict[str, int] = {}
+        self._last_message_size = 0
+        self._oversized_messages = 0
+        self._partial_limit_failures = 0
         self._send_lock = asyncio.Lock()
         self._ready_event = asyncio.Event()
 
@@ -153,6 +167,7 @@ class MusicAssistantEventClient:
         future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
         self._pending_commands[message_id] = future
         self._partial_results[message_id] = []
+        self._partial_sizes[message_id] = 0
         try:
             # One deadline includes lock contention, sending and the MA response.
             async with asyncio.timeout_at(deadline):
@@ -174,6 +189,7 @@ class MusicAssistantEventClient:
         finally:
             self._pending_commands.pop(message_id, None)
             self._partial_results.pop(message_id, None)
+            self._partial_sizes.pop(message_id, None)
             if not future.done():
                 future.cancel()
             elif not future.cancelled():
@@ -202,6 +218,16 @@ class MusicAssistantEventClient:
             "last_event_at": self._last_event_at,
             "event_count": self._event_count,
             "last_error": self._last_error,
+            "limits": {
+                "max_message_bytes": MAX_MESSAGE_SIZE,
+                "max_partial_items": MAX_PARTIAL_ITEMS,
+                "max_partial_bytes": MAX_PARTIAL_BYTES,
+                "pending_commands": len(self._pending_commands),
+                "pending_partial_items": sum(len(item) for item in self._partial_results.values()),
+                "pending_partial_bytes": sum(self._partial_sizes.values()),
+                "oversized_messages": self._oversized_messages,
+                "partial_limit_failures": self._partial_limit_failures,
+            },
         }
 
     async def _run(self, generation: int) -> None:
@@ -209,6 +235,7 @@ class MusicAssistantEventClient:
         while generation == self._generation and self._base_urls and self._token:
             self._active_url_index %= len(self._base_urls)
             self._base_url = self._base_urls[self._active_url_index]
+            close_reason = "Music Assistant WebSocket disconnected"
             try:
                 await self._connect_and_listen(generation)
                 delay = 1
@@ -217,9 +244,10 @@ class MusicAssistantEventClient:
             except Exception as err:  # noqa: BLE001 - connection errors must never escape setup
                 self._last_error = str(err)[:300]
                 _LOGGER.warning("Music Assistant event connection failed: %s", self._last_error)
+                close_reason = f"{close_reason}: {self._last_error}"
                 self._active_url_index = (self._active_url_index + 1) % len(self._base_urls)
             finally:
-                await self._close_ws()
+                await self._close_ws(close_reason)
                 self._connected = False
                 self._authenticated = False
                 self._publish_status()
@@ -233,7 +261,7 @@ class MusicAssistantEventClient:
             _websocket_url(self._base_url),
             heartbeat=55,
             compress=15,
-            max_msg_size=0,
+            max_msg_size=MAX_MESSAGE_SIZE,
         )
         greeting = await self._receive_json()
         self._server_version = str(greeting.get("server_version") or "")
@@ -278,13 +306,18 @@ class MusicAssistantEventClient:
 
         while generation == self._generation:
             message = await self._receive_json()
-            if self._dispatch_command_response(message):
+            if self._dispatch_command_response(message, self._last_message_size):
                 continue
             if "event" in message:
                 self._publish_event(message)
 
-    def _dispatch_command_response(self, message: dict[str, Any]) -> bool:
-        """Resolve one pending command, including chunked MA list responses."""
+    def _dispatch_command_response(self, message: dict[str, Any], size: int = 0) -> bool:
+        """Resolve one pending command, including chunked MA list responses.
+
+        ``size`` is the raw size of the message. The items and bytes of all chunks of one
+        command, the final one included, are limited by MAX_PARTIAL_ITEMS and
+        MAX_PARTIAL_BYTES; going over fails that command.
+        """
         message_id = str(message.get("message_id") or "")
         future = self._pending_commands.get(message_id)
         if future is None:
@@ -300,14 +333,30 @@ class MusicAssistantEventClient:
                 future.set_exception(RuntimeError(details))
             return True
         result = message.get("result")
+        if future.done():
+            # Already failed (limit exceeded) or cancelled: discard the remaining chunks.
+            return True
+        partial = self._partial_results.setdefault(message_id, [])
+        total_size = self._partial_sizes.get(message_id, 0) + size
+        added = len(result) if isinstance(result, list) else int(result is not None)
+        if len(partial) + added > MAX_PARTIAL_ITEMS or total_size > MAX_PARTIAL_BYTES:
+            self._partial_limit_failures += 1
+            self._partial_results.pop(message_id, None)
+            self._partial_sizes.pop(message_id, None)
+            future.set_exception(
+                RuntimeError(
+                    "Music Assistant response is too large "
+                    f"(limit {MAX_PARTIAL_ITEMS} items or {MAX_PARTIAL_BYTES} bytes)"
+                )
+            )
+            return True
         if message.get("partial"):
-            partial = self._partial_results.setdefault(message_id, [])
+            self._partial_sizes[message_id] = total_size
             if isinstance(result, list):
                 partial.extend(result)
             elif result is not None:
                 partial.append(result)
             return True
-        partial = self._partial_results.get(message_id) or []
         if partial:
             if isinstance(result, list):
                 result = [*partial, *result]
@@ -326,22 +375,33 @@ class MusicAssistantEventClient:
         if message.type in (WSMsgType.CLOSE, WSMsgType.CLOSED, WSMsgType.CLOSING):
             raise RuntimeError("Music Assistant WebSocket closed")
         if message.type == WSMsgType.ERROR:
+            if (
+                getattr(message.data, "code", None) == WSCloseCode.MESSAGE_TOO_BIG
+                or self._ws.close_code == WSCloseCode.MESSAGE_TOO_BIG
+            ):
+                # aiohttp has already closed the socket with code 1009.
+                self._oversized_messages += 1
+                raise RuntimeError(
+                    f"Music Assistant sent a message larger than {MAX_MESSAGE_SIZE} bytes; "
+                    "connection closed"
+                )
             raise RuntimeError("Music Assistant WebSocket failed")
         if message.type != WSMsgType.TEXT:
             raise ValueError("Music Assistant sent a non-text WebSocket message")
+        self._last_message_size = len(message.data)
         data = message.json()
         if not isinstance(data, dict):
             raise ValueError("Music Assistant sent an invalid WebSocket message")
         return data
 
-    async def _close_ws(self) -> None:
+    async def _close_ws(self, reason: str = "Music Assistant WebSocket disconnected") -> None:
         ws = self._ws
         self._ws = None
         self._ready_event.clear()
         if ws and not ws.closed:
             with contextlib.suppress(Exception):
                 await ws.close()
-        self._fail_pending_commands("Music Assistant WebSocket disconnected")
+        self._fail_pending_commands(reason)
 
     def _fail_pending_commands(self, reason: str) -> None:
         """Reject commands that cannot receive a response after disconnect."""
@@ -350,6 +410,7 @@ class MusicAssistantEventClient:
                 future.set_exception(RuntimeError(reason))
         self._pending_commands.clear()
         self._partial_results.clear()
+        self._partial_sizes.clear()
 
     def _publish_status(self) -> None:
         try:
