@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Hashable
+from collections.abc import Callable, Hashable, Iterator
 from typing import Any
 
 # Counted for a value that cannot be serialized, so it still takes part in the byte limit.
@@ -20,7 +20,7 @@ def estimate_json_size(value: Any) -> int:
         return _UNSERIALIZABLE_SIZE
 
 
-class BoundedCache:
+class BoundedCache[K: Hashable, V]:
     """Mapping that evicts expired entries, then the least recently used ones.
 
     - ``max_entries`` and ``max_bytes`` (optional) limit the cache. Inserting past either
@@ -44,9 +44,9 @@ class BoundedCache:
         *,
         max_entries: int,
         max_bytes: int | None = None,
-        expires_at: Callable[[Any], float | None] | None = None,
-        sizeof: Callable[[Any], int] | None = None,
-        on_evict: Callable[[Hashable, Any, str], None] | None = None,
+        expires_at: Callable[[V], float | None] | None = None,
+        sizeof: Callable[[V], int] | None = None,
+        on_evict: Callable[[K, V, str], None] | None = None,
         purge_interval: float = 0.0,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -59,7 +59,7 @@ class BoundedCache:
         self._on_evict = on_evict
         self._purge_interval = purge_interval
         self._clock = clock
-        self._entries: OrderedDict[Hashable, tuple[Any, int]] = OrderedDict()
+        self._entries: OrderedDict[K, tuple[V, int]] = OrderedDict()
         self._bytes = 0
         self._last_purge = clock()
         self.evicted_capacity = 0
@@ -72,13 +72,13 @@ class BoundedCache:
     def __contains__(self, key: object) -> bool:
         return key in self._entries
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[K]:
         return iter(list(self._entries))
 
-    def __getitem__(self, key: Hashable) -> Any:
+    def __getitem__(self, key: K) -> V:
         return self._entries[key][0]
 
-    def __setitem__(self, key: Hashable, value: Any) -> None:
+    def __setitem__(self, key: K, value: V) -> None:
         size = max(0, int(self._sizeof(value))) if self._sizeof else 0
         previous = self._entries.pop(key, None)
         if previous is not None:
@@ -90,10 +90,10 @@ class BoundedCache:
         self._bytes += size
         self._trim(force_purge=self._over_limit())
 
-    def __delitem__(self, key: Hashable) -> None:
+    def __delitem__(self, key: K) -> None:
         self._bytes -= self._entries.pop(key)[1]
 
-    def get(self, key: Hashable, default: Any = None) -> Any:
+    def get(self, key: K, default: Any = None) -> Any:
         """Return a live value and mark it most recently used; drop it if it expired."""
         entry = self._entries.get(key)
         if entry is None:
@@ -104,12 +104,12 @@ class BoundedCache:
         self._entries.move_to_end(key)
         return entry[0]
 
-    def touch(self, key: Hashable) -> None:
+    def touch(self, key: K) -> None:
         """Mark an existing entry most recently used."""
         if key in self._entries:
             self._entries.move_to_end(key)
 
-    def pop(self, key: Hashable, default: Any = None) -> Any:
+    def pop(self, key: K, default: Any = None) -> Any:
         entry = self._entries.pop(key, None)
         if entry is None:
             return default
@@ -120,13 +120,13 @@ class BoundedCache:
         self._entries.clear()
         self._bytes = 0
 
-    def keys(self) -> list[Hashable]:
+    def keys(self) -> list[K]:
         return list(self._entries)
 
-    def values(self) -> list[Any]:
+    def values(self) -> list[V]:
         return [value for value, _ in self._entries.values()]
 
-    def items(self) -> list[tuple[Hashable, Any]]:
+    def items(self) -> list[tuple[K, V]]:
         return [(key, value) for key, (value, _) in self._entries.items()]
 
     @property
@@ -161,13 +161,13 @@ class BoundedCache:
             self.max_bytes is not None and self._bytes > self.max_bytes
         )
 
-    def _is_expired(self, value: Any, now: float) -> bool:
+    def _is_expired(self, value: V, now: float) -> bool:
         if self._expires_at is None:
             return False
         deadline = self._expires_at(value)
         return deadline is not None and deadline <= now
 
-    def _drop(self, key: Hashable, reason: str) -> None:
+    def _drop(self, key: K, reason: str) -> None:
         value, size = self._entries.pop(key)
         self._bytes -= size
         if reason == "expired":

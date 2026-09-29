@@ -1143,7 +1143,7 @@ class HomeiiFlowRuntime:
         self._playback_stats_active_entities: set[str] = set()
         self._playback_stats_is_syncing = False
         # token -> (source, expires_at). Least recently used tokens are evicted first.
-        self._artwork_sources = BoundedCache(
+        self._artwork_sources: BoundedCache[str, tuple[str, float]] = BoundedCache(
             max_entries=ARTWORK_TOKEN_MAX_ENTRIES,
             expires_at=lambda entry: entry[1],
             on_evict=self._forget_artwork_token,
@@ -1151,7 +1151,7 @@ class HomeiiFlowRuntime:
         )
         self._artwork_source_tokens: dict[str, str] = {}
         # source -> (expires_at, body, content_type)
-        self._artwork_content_cache = BoundedCache(
+        self._artwork_content_cache: BoundedCache[str, tuple[float, bytes, str]] = BoundedCache(
             max_entries=ARTWORK_CONTENT_CACHE_MAX_ENTRIES,
             max_bytes=ARTWORK_CONTENT_CACHE_MAX_BYTES,
             expires_at=lambda entry: entry[0],
@@ -1159,7 +1159,7 @@ class HomeiiFlowRuntime:
         )
         # Replaced by the persisted secret in async_load; never left unkeyed.
         self._artwork_token_secret: bytes = secrets.token_bytes(32)
-        self._library_cache = BoundedCache(
+        self._library_cache: BoundedCache[tuple[Any, ...], dict[str, Any]] = BoundedCache(
             max_entries=LIBRARY_CACHE_MAX_ENTRIES,
             max_bytes=LIBRARY_CACHE_MAX_BYTES,
             expires_at=lambda entry: float(entry.get("stale_until") or 0),
@@ -1187,6 +1187,7 @@ class HomeiiFlowRuntime:
             "last_persist_at": "",
         }
         # search key -> (expires_at, result)
+        self._search_cache: BoundedCache[tuple[Any, ...], tuple[float, dict[str, Any]]]
         self._search_cache = BoundedCache(
             max_entries=SEARCH_CACHE_MAX_ENTRIES,
             max_bytes=SEARCH_CACHE_MAX_BYTES,
