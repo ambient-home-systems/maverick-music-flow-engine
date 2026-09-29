@@ -183,13 +183,16 @@ class FakeConnection:
         self.user = user
         self.send_result = Mock()
         self.send_error = Mock()
+        self.send_message = Mock()
+        self.subscriptions: dict[int, Any] = {}
 
     @property
     def outcome(self) -> tuple[str, Any]:
         if self.send_error.called:
             return ("error", self.send_error.call_args.args[1])
         if self.send_result.called:
-            return ("result", self.send_result.call_args.args[1])
+            args = self.send_result.call_args.args
+            return ("result", args[1] if len(args) > 1 else None)
         return ("none", None)
 
 
@@ -250,6 +253,10 @@ class FakeRuntime:
     def _resolve_ma_player_id(self, player):
         return player
 
+    def async_subscribe_music_assistant_events(self, listener):
+        self.calls.append(("async_subscribe_music_assistant_events", (listener,), {}))
+        return lambda: None
+
     def __getattr__(self, name: str):
         if name.startswith("__"):
             raise AttributeError(name)
@@ -292,6 +299,7 @@ async def run(
 # Minimal valid messages for every command, by level.
 READ_MESSAGES: dict[str, dict[str, Any]] = {
     "get_context": {},
+    "events/subscribe": {},
     "bootstrap/get": {},
     "connections/get": {},
     "stats/get": {},

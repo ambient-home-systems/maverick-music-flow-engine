@@ -250,7 +250,9 @@ _STUBS = {
         ),
     ),
     "homeassistant.helpers.dispatcher": _module(
-        "homeassistant.helpers.dispatcher", async_dispatcher_send=lambda hass, signal, *args: None
+        "homeassistant.helpers.dispatcher",
+        async_dispatcher_connect=lambda hass, signal, target: lambda: None,
+        async_dispatcher_send=lambda hass, signal, *args: None,
     ),
     "homeassistant.helpers.entity_registry": _module("homeassistant.helpers.entity_registry"),
     "homeassistant.helpers.event": _module(

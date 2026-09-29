@@ -91,6 +91,7 @@ CAPABILITIES = {
     "music_assistant_authenticated_api": True,
     "music_assistant_websocket_commands": True,
     "music_assistant_realtime_events": True,
+    "music_assistant_event_subscription": True,
     "music_assistant_server_info": True,
     "music_assistant_schema_63": True,
     "music_assistant_queue_resolution": True,

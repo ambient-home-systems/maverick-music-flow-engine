@@ -51,6 +51,7 @@ WEBSOCKET_COMMAND_ACCESS: dict[str, str] = {
     # individual read commands (schedules/get, volume_rules/get, activity/get, ...)
     # already return, so it stays a read; nothing in it needs administrator access.
     "get_context": ACCESS_READ,
+    "events/subscribe": ACCESS_READ,
     "bootstrap/get": ACCESS_READ,
     "connections/get": ACCESS_READ,
     "stats/get": ACCESS_READ,

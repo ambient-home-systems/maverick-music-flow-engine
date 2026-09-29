@@ -21,7 +21,7 @@ from homeassistant.components import tts
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_point_in_time,
@@ -78,6 +78,26 @@ _MA_PLAYERS_EVENT_REFRESH_DELAY = 2.0
 _MA_PLAYERS_REFRESH_TIMEOUT = 10
 # Music Assistant events that change the player catalog.
 _MA_PLAYER_EVENTS = frozenset({"player_added", "player_updated", "player_removed"})
+# Substrings of Music Assistant events that only report playback progress (for example
+# queue_time_updated, sent every second per playing queue). They never go on the Home
+# Assistant bus, where the recorder would store each one.
+_MA_PROGRESS_EVENT_TOKENS = (
+    "elapsed",
+    "progress",
+    "position",
+    "time_updated",
+    "queue_time",
+    "player_time",
+)
+# Other Music Assistant events go on the bus at most once per this many seconds for each
+# (kind, event, object_id), and refresh the entities at most once per window: the first
+# event is forwarded at once, and the latest of each kind that arrived inside the window
+# when it closes.
+_MA_EVENT_FORWARD_WINDOW = 1.0
+# Activity records are written to storage at most this many seconds after the first
+# unsaved one (the same cadence as playback statistics), so a volume rule that keeps
+# limiting a player does not rewrite the whole store every 30 seconds.
+ACTIVITY_SAVE_DELAY = 240.0
 
 # Most schedule last-run keys kept in storage. There is one per schedule; keys of deleted
 # schedules are dropped when another run is recorded.
@@ -868,7 +888,7 @@ class HomeiiScheduleRunner:
             # Reserve before yielding so switch/interval callbacks cannot replay this run,
             # and save it so a restart inside the due window cannot either.
             self.runtime._record_schedule_run(self.key, run_key)
-            await self.runtime._store.async_save(self.runtime._storage)
+            await self.runtime._async_write_storage()
             result = await self.action_queue.async_run(schedule, due_at=run_at, trigger=trigger)
             if result.get("ok") and str(schedule.get("after_run") or "") == "disable":
                 await self.runtime.async_disable_schedule_after_run(schedule)
@@ -1219,6 +1239,20 @@ class HomeiiFlowRuntime:
         }
         self._snapshot_epoch = uuid4().hex
         self._snapshot_revision_reasons: dict[str, str] = {}
+        # Callbacks of maverick_music_flow/events/subscribe; they get every MA message,
+        # progress included, which never goes on the Home Assistant bus.
+        self._ma_event_listeners: set[Callable[[dict[str, Any]], None]] = set()
+        # Bus events and entity updates from MA events are sent at most once per
+        # _MA_EVENT_FORWARD_WINDOW; messages that arrive inside a window wait here, the
+        # latest one per (kind, event, object_id).
+        self._ma_event_pending: dict[tuple[str, str, str], dict[str, Any]] = {}
+        self._ma_event_window_unsub: Callable[[], None] | None = None
+        # One required_connections_snapshot() shared by every entity that renders for
+        # the same SIGNAL_ENGINE_UPDATED; see required_connections_snapshot().
+        self._required_connections_cache: dict[str, Any] | None = None
+        self._required_connections_signal_unsub: Callable[[], None] | None = None
+        # True while a delayed write of activity records is pending.
+        self._activity_save_scheduled = False
         self._music_assistant_client = MusicAssistantEventClient(
             async_get_clientsession(hass),
             self._handle_music_assistant_message,
@@ -2118,7 +2152,7 @@ class HomeiiFlowRuntime:
             # First load (or a corrupt value): persist the generated secret so artwork
             # URLs stay stable across restarts.
             self._storage["artwork_token_secret"] = self._artwork_token_secret.hex()
-            await self._store.async_save(self._storage)
+            await self._async_write_storage()
         await self._async_load_media_cache()
 
     @property
@@ -2161,6 +2195,11 @@ class HomeiiFlowRuntime:
             await self.async_load()
             self._loaded = True
         self._active = True
+        # Connected before any entity platform is set up, so on every signal the shared
+        # connection snapshot is dropped before the entities read it.
+        self._required_connections_signal_unsub = async_dispatcher_connect(
+            self.hass, SIGNAL_ENGINE_UPDATED, self._clear_required_connections_cache
+        )
         self.artwork_lighting.start()
         self.async_start_orchestration()
 
@@ -2189,6 +2228,11 @@ class HomeiiFlowRuntime:
             await asyncio.wait({save_task}, timeout=SHUTDOWN_TASK_TIMEOUT)
         await self._async_cancel_background_tasks()
         await self._music_assistant_client.async_stop()
+        self._cancel_music_assistant_event_window()
+        if self._required_connections_signal_unsub is not None:
+            self._required_connections_signal_unsub()
+            self._required_connections_signal_unsub = None
+        self._required_connections_cache = None
         # The next caller after a reload must never await a cancelled request.
         self._queue_inflight.clear()
         self._library_inflight.clear()
@@ -2197,7 +2241,7 @@ class HomeiiFlowRuntime:
         getattr(self, "_radio_directory_pending", {}).clear()
         # A cancelled task may have changed storage without saving it, and playback
         # statistics are only saved every few minutes.
-        await self._store.async_save(self._storage)
+        await self._async_write_storage()
         if flush_media_cache:
             await self._async_save_media_cache()
 
@@ -2356,7 +2400,7 @@ class HomeiiFlowRuntime:
 
     async def async_save(self) -> None:
         """Persist Engine data."""
-        await self._store.async_save(self._storage)
+        await self._async_write_storage()
         async_dispatcher_send(self.hass, SIGNAL_ENGINE_UPDATED)
 
     def register_entry(
@@ -2451,17 +2495,7 @@ class HomeiiFlowRuntime:
             event_name = _clean_string(message.get("event")).lower()
             if event_name in _MA_PLAYER_EVENTS:
                 self._schedule_ma_players_refresh(delay=_MA_PLAYERS_EVENT_REFRESH_DELAY, again=True)
-            progress_only = any(
-                token in event_name
-                for token in (
-                    "elapsed",
-                    "progress",
-                    "position",
-                    "time_updated",
-                    "queue_time",
-                    "player_time",
-                )
-            )
+            progress_only = any(token in event_name for token in _MA_PROGRESS_EVENT_TOKENS)
             playback_event = any(
                 token in event_name
                 for token in (
@@ -2531,9 +2565,78 @@ class HomeiiFlowRuntime:
                     self._bump_snapshot_revision(
                         *changed_domains, reason=event_name or "music_assistant_event"
                     )
-        self.hass.bus.async_fire(EVENT_MUSIC_ASSISTANT, dict(message))
+        self._notify_music_assistant_listeners(message)
         if not progress_only:
-            async_dispatcher_send(self.hass, SIGNAL_ENGINE_UPDATED)
+            self._forward_music_assistant_event(message)
+
+    @callback
+    def async_subscribe_music_assistant_events(
+        self, listener: Callable[[dict[str, Any]], None]
+    ) -> Callable[[], None]:
+        """Call listener with every Music Assistant message, progress events included."""
+        self._ma_event_listeners.add(listener)
+
+        @callback
+        def unsubscribe() -> None:
+            self._ma_event_listeners.discard(listener)
+
+        return unsubscribe
+
+    def _notify_music_assistant_listeners(self, message: dict[str, Any]) -> None:
+        """Pass one Music Assistant message to every WebSocket subscriber."""
+        for listener in list(self._ma_event_listeners):
+            try:
+                listener(dict(message))
+            except Exception:  # noqa: BLE001 - one subscriber must not break the others
+                _LOGGER.exception("Music Assistant event subscriber failed")
+
+    def _forward_music_assistant_event(self, message: dict[str, Any]) -> None:
+        """Fire message on the bus and refresh entities, at most once per forward window."""
+        if not self._active:
+            # Unload is stopping the MA connection; nothing may schedule work now.
+            self._fire_music_assistant_events([dict(message)])
+            return
+        if self._ma_event_window_unsub is not None:
+            key = (
+                str(message.get("kind") or ""),
+                str(message.get("event") or ""),
+                str(message.get("object_id") or ""),
+            )
+            # Re-insert so the flush keeps the order of the latest arrivals.
+            self._ma_event_pending.pop(key, None)
+            self._ma_event_pending[key] = dict(message)
+            return
+        self._fire_music_assistant_events([dict(message)])
+        self._ma_event_window_unsub = async_call_later(
+            self.hass, _MA_EVENT_FORWARD_WINDOW, self._close_music_assistant_event_window
+        )
+
+    @callback
+    def _close_music_assistant_event_window(self, _now: datetime) -> None:
+        """Forward the messages held during the window that just closed."""
+        self._ma_event_window_unsub = None
+        pending = list(self._ma_event_pending.values())
+        self._ma_event_pending.clear()
+        if not pending or not self._active:
+            return
+        self._fire_music_assistant_events(pending)
+        # Keep limiting while events keep coming.
+        self._ma_event_window_unsub = async_call_later(
+            self.hass, _MA_EVENT_FORWARD_WINDOW, self._close_music_assistant_event_window
+        )
+
+    def _fire_music_assistant_events(self, messages: list[dict[str, Any]]) -> None:
+        """Fire messages on the Home Assistant bus, then refresh the entities once."""
+        for message in messages:
+            self.hass.bus.async_fire(EVENT_MUSIC_ASSISTANT, message)
+        async_dispatcher_send(self.hass, SIGNAL_ENGINE_UPDATED)
+
+    def _cancel_music_assistant_event_window(self) -> None:
+        """Drop held Music Assistant events and stop the forward window timer."""
+        if self._ma_event_window_unsub is not None:
+            self._ma_event_window_unsub()
+            self._ma_event_window_unsub = None
+        self._ma_event_pending.clear()
 
     @property
     def entries(self) -> list[EngineEntry]:
@@ -2693,7 +2796,32 @@ class HomeiiFlowRuntime:
         *,
         all_players: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """Return the required backend connections for Maverick Music Flow."""
+        """Return the required backend connections for Maverick Music Flow.
+
+        Building it walks every media player and the entity registry, and about 20
+        entities read it whenever SIGNAL_ENGINE_UPDATED is sent. The dispatcher calls
+        them back to back, so the first one builds the snapshot and the rest share it.
+        The shared copy is dropped when the next signal is sent (the runtime's own
+        listener runs before the entities', see async_start) and at the end of the
+        current event loop iteration, so no later caller sees stale data. Callers must
+        not change the returned dict.
+        """
+        if all_players is not None:
+            return self._build_required_connections_snapshot(all_players)
+        if self._required_connections_cache is None:
+            self._required_connections_cache = self._build_required_connections_snapshot(None)
+            self.hass.loop.call_soon(self._clear_required_connections_cache)
+        return self._required_connections_cache
+
+    @callback
+    def _clear_required_connections_cache(self) -> None:
+        """Make the next required_connections_snapshot() call build a new snapshot."""
+        self._required_connections_cache = None
+
+    def _build_required_connections_snapshot(
+        self, all_players: list[dict[str, Any]] | None
+    ) -> dict[str, Any]:
+        """Build the required backend connections snapshot."""
         services = self.hass.services.async_services()
         music_assistant_services = sorted(services.get("music_assistant", {}).keys())
         entries = self.music_assistant_config_entries_snapshot()
@@ -6885,6 +7013,7 @@ class HomeiiFlowRuntime:
             "uri": uri,
             "snapshot": snapshot,
         }
+        self._notify_music_assistant_listeners(event)
         self.hass.bus.async_fire(EVENT_MUSIC_ASSISTANT, event)
         async_dispatcher_send(self.hass, SIGNAL_ENGINE_UPDATED)
         return {
@@ -7227,8 +7356,35 @@ class HomeiiFlowRuntime:
             "created_at": _utc_iso(),
         }
         self._storage["activity"] = [item, *self.activity()][:50]
-        await self.async_save()
+        self._schedule_activity_save()
+        async_dispatcher_send(self.hass, SIGNAL_ENGINE_UPDATED)
         return item
+
+    @callback
+    def _schedule_activity_save(self) -> None:
+        """Write activity records within ACTIVITY_SAVE_DELAY seconds.
+
+        Store.async_delay_save moves its write back on every call, so a record every 30
+        seconds would postpone it indefinitely; only the first record after a write
+        schedules one. Any full write stores the records too, and Home Assistant writes a
+        pending delayed save when it stops.
+        """
+        if self._activity_save_scheduled:
+            return
+        self._activity_save_scheduled = True
+        self._store.async_delay_save(self._activity_save_data, ACTIVITY_SAVE_DELAY)
+
+    @callback
+    def _activity_save_data(self) -> dict[str, Any]:
+        """Return the data for a delayed write."""
+        self._activity_save_scheduled = False
+        return self._storage
+
+    async def _async_write_storage(self) -> None:
+        """Write the whole store now; this also replaces a pending delayed write."""
+        # Store.async_save cancels a pending delayed write without asking for its data.
+        self._activity_save_scheduled = False
+        await self._store.async_save(self._storage)
 
     async def async_set_volume_rule(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Store or update a volume rule."""
