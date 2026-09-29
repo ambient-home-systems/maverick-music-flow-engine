@@ -799,7 +799,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
     """Register optional automation-facing services."""
 
     async def set_interface_preferences(call: ServiceCall) -> None:
-        await save_preferences(hass.data[DOMAIN]["runtime"], dict(call.data))
+        await save_preferences(hass.data[DOMAIN]["runtime"], dict(call.data), is_admin=True)
 
     _async_register_guarded_service(
         hass,

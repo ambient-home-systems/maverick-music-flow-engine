@@ -1,5 +1,6 @@
 import ast
 import copy
+import json
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,7 +12,18 @@ source = (
     / "custom_components/maverick_music_flow/interface_preferences.py"
 )
 tree = ast.parse(source.read_text(encoding="utf-8"))
-ns = {"copy": copy, "re": re, "DEFAULT_PROFILE_ID": "default"}
+
+_limits_src = (
+    Path(__file__).resolve().parents[1] / "custom_components/maverick_music_flow/storage_limits.py"
+)
+_limits_ns = {"__name__": "storage_limits", "json": json, "re": re}
+exec(compile(_limits_src.read_text(encoding="utf-8"), str(_limits_src), "exec"), _limits_ns)
+ns = {
+    "copy": copy,
+    "re": re,
+    "DEFAULT_PROFILE_ID": "default",
+    **{k: v for k, v in _limits_ns.items() if not k.startswith("__")},
+}
 exec(
     compile(
         ast.Module(
@@ -40,6 +52,7 @@ class InterfacePreferencesTests(IsolatedAsyncioTestCase):
                 "night_start": "22:30",
                 "night_days": [0, 1],
             },
+            True,
         )
         await ns["save_preferences"](runtime, {"profile_id": "tablet", "night_end": "06:00"})
         self.assertEqual(ns["read_preferences"](runtime, "tablet")["night_start"], "22:30")
@@ -84,3 +97,74 @@ class InterfacePreferencesTests(IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError):
             await ns["save_wheel_preferences"](runtime, {**data, "context": "queue"}, "alice")
         self.assertEqual(runtime._storage, before)
+
+
+class StorageLimitTests(IsolatedAsyncioTestCase):
+    def runtime(self):
+        return SimpleNamespace(_storage={}, async_save=AsyncMock())
+
+    async def test_wheel_context_limit_per_user(self):
+        runtime = self.runtime()
+        for i in range(ns["MAX_WHEEL_CONTEXTS"]):
+            await ns["save_wheel_preferences"](
+                runtime, {"context": f"c{i}", "preference": {"order": ["a"]}}, "alice"
+            )
+        with self.assertRaisesRegex(ValueError, "context limit"):
+            await ns["save_wheel_preferences"](
+                runtime, {"context": "extra", "preference": {"order": ["a"]}}, "alice"
+            )
+        # updating an existing context and another user are still fine
+        await ns["save_wheel_preferences"](
+            runtime, {"context": "c0", "preference": {"order": ["b"]}}, "alice"
+        )
+        await ns["save_wheel_preferences"](
+            runtime, {"context": "extra", "preference": {"order": ["a"]}}, "bob"
+        )
+
+    async def test_wheel_preference_byte_cap(self):
+        runtime = self.runtime()
+        big = [
+            f"{i:03d}" + "x" * 253 for i in range(200)
+        ]  # within per-list limits, over the byte cap
+        with self.assertRaisesRegex(ValueError, "too large"):
+            await ns["save_wheel_preferences"](
+                runtime, {"context": "main", "preference": {"order": big}}, "alice"
+            )
+        self.assertEqual(runtime._storage, {})
+
+    def test_interface_preference_byte_cap(self):
+        ns["MAX_INTERFACE_PREFERENCE_BYTES"] = 20
+        try:
+            with self.assertRaisesRegex(ValueError, "too large"):
+                ns["validate_preferences"]({"night_start": "22:00", "night_end": "07:00"}, {})
+        finally:
+            ns["MAX_INTERFACE_PREFERENCE_BYTES"] = 4 * 1024
+
+    async def test_invalid_and_new_profiles(self):
+        runtime = self.runtime()
+        for bad in ["UPPER", "has space", "a" * 33, "../x"]:
+            for call in (
+                ns["save_preferences"](runtime, {"profile_id": bad, "night_mode": "on"}, True),
+                ns["save_wheel_preferences"](
+                    runtime,
+                    {"profile_id": bad, "context": "m", "preference": {}},
+                    "alice",
+                    True,
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "Invalid profile ID"):
+                    await call
+        with self.assertRaisesRegex(ValueError, "administrator"):
+            await ns["save_preferences"](runtime, {"profile_id": "den", "night_mode": "on"})
+        await ns["save_preferences"](runtime, {"profile_id": "den", "night_mode": "on"}, True)
+        await ns["save_preferences"](runtime, {"profile_id": "den", "night_mode": "off"})
+        await ns["save_preferences"](runtime, {"night_mode": "on"})  # default profile
+        self.assertEqual(
+            runtime._storage,
+            {
+                "interface_preferences": {
+                    "den": {"night_mode": "off"},
+                    "default": {"night_mode": "on"},
+                }
+            },
+        )

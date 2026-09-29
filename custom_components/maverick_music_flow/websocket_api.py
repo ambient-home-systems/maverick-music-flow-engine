@@ -1185,7 +1185,10 @@ async def websocket_set_interface_preferences(hass, connection, msg):
         return
     try:
         connection.send_result(
-            msg["id"], await save_preferences(_runtime(hass), _command_payload(msg))
+            msg["id"],
+            await save_preferences(
+                _runtime(hass), _command_payload(msg), is_admin=bool(connection.user.is_admin)
+            ),
         )
     except Exception as err:
         connection.send_error(msg["id"], "interface_set_failed", str(err))
@@ -1218,7 +1221,10 @@ async def websocket_set_wheel_preferences(hass, connection, msg):
         return
     try:
         result = await save_wheel_preferences(
-            _runtime(hass), _command_payload(msg), connection.user.id, connection.user.is_admin
+            _runtime(hass),
+            _command_payload(msg),
+            connection.user.id,
+            bool(connection.user.is_admin),
         )
         connection.send_result(msg["id"], result)
     except Exception as err:
@@ -1243,7 +1249,7 @@ async def websocket_saved_playlists(hass, connection, msg):
         runtime = _runtime(hass)
         payload = _command_payload(msg)
         if msg["action"] == "save":
-            result = await save_playlist(runtime, payload)
+            result = await save_playlist(runtime, payload, bool(connection.user.is_admin))
         elif msg["action"] == "play":
             result = await play_playlist(runtime, payload)
         elif msg["action"] == "delete":

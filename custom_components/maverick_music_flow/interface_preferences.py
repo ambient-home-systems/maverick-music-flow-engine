@@ -6,6 +6,13 @@ import copy
 import re
 
 from .const import DEFAULT_PROFILE_ID
+from .storage_limits import (
+    MAX_INTERFACE_PREFERENCE_BYTES,
+    MAX_WHEEL_CONTEXTS,
+    MAX_WHEEL_PREFERENCE_BYTES,
+    check_profile,
+    json_size,
+)
 
 
 def read_preferences(runtime, profile_id=None):
@@ -33,13 +40,18 @@ def validate_preferences(payload, current):
         ):
             raise ValueError("Invalid night days")
         result["night_days"] = list(dict.fromkeys(days))
+    if json_size(result) > MAX_INTERFACE_PREFERENCE_BYTES:
+        raise ValueError(
+            f"Interface preferences are too large (limit {MAX_INTERFACE_PREFERENCE_BYTES} bytes)"
+        )
     return result
 
 
-async def save_preferences(runtime, payload):
+async def save_preferences(runtime, payload, is_admin=False):
     profile = str(payload.get("profile_id") or DEFAULT_PROFILE_ID)
     current = read_preferences(runtime, profile)
     result = validate_preferences(payload, current)
+    check_profile(runtime._storage, profile, is_admin)
     store = runtime._storage.setdefault("interface_preferences", {})
     store[profile] = result
     try:
@@ -80,7 +92,12 @@ async def save_wheel_preferences(runtime, payload, user_id, is_admin=False):
         ):
             raise ValueError("Invalid wheel preferences")
         cleaned[key] = list(dict.fromkeys(values))
+    if json_size(cleaned) > MAX_WHEEL_PREFERENCE_BYTES:
+        raise ValueError(
+            f"Wheel preferences are too large (limit {MAX_WHEEL_PREFERENCE_BYTES // 1024} KiB)"
+        )
     profile = str(payload.get("profile_id") or DEFAULT_PROFILE_ID)
+    check_profile(runtime._storage, profile, is_admin)
     store = runtime._storage.setdefault("wheel_preferences", {})
     previous = copy.deepcopy(store.get(profile, {}))
     current = copy.deepcopy(previous)
@@ -89,6 +106,8 @@ async def save_wheel_preferences(runtime, payload, user_id, is_admin=False):
         if scope == "global"
         else current.setdefault("users", {}).setdefault(user_id, {})
     )
+    if context not in target and len(target) >= MAX_WHEEL_CONTEXTS:
+        raise ValueError(f"Wheel context limit reached ({MAX_WHEEL_CONTEXTS} per user)")
     target[context] = cleaned
     store[profile] = current
     try:
